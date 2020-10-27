@@ -1,7 +1,9 @@
 import tables, arraymancer, strutils, math, sequtils, random
 
+# cordinates always start from the top left excep for the board which is the only thing that starts at the bottom left
+
 type  # consider changing these to ref objects while testing
-    Mino_state = ref object
+    Mino_state = object
         rotation_id: int
         shape: Tensor[int]
         pivot_x: int
@@ -20,8 +22,8 @@ type  # consider changing these to ref objects while testing
     Rules = object
         game: string
         width: int
-        height: int
-        full_height: int  # its implied that anything placed fully above height will kill
+        visible_height: int
+        height: int  # its implied that anything placed fully above height will kill
         place_delay: float
         clear_delay: float
         spawn_x: int
@@ -35,10 +37,10 @@ type  # consider changing these to ref objects while testing
         kick_table: string
         visible_queue_len: int
         gravity_speed: int
-    Board = object
-        state: Tensor[int]
-    CompactBoard = object
-        state: array[int, seq[int]]
+    # Board = object
+    #     state: Tensor[int]
+    # CompactBoard = object
+    #     state: array[int, seq[int]]
     State = object
         game_active: bool
         active: Mino
@@ -236,15 +238,21 @@ proc newBag(rules: Rules): seq[Mino] =
 # Use a names such as tetrio to preset rules object to have desired settings
 proc newRules(game: string): Rules = 
     if game.toUpperAscii() == "TETRIO":
-        result = Rules(game: game.toUpperAscii(), width: 10, height: 20, full_height: 23, place_delay: 0.0, 
+        result = Rules(game: game.toUpperAscii(), width: 10, visible_height: 20, height: 23, place_delay: 0.0, 
         clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
         bag_piece_names: "JLSZIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
         )
         result.bag_minos = newBag(result)
         return result
     elif game.toUpperAscii() == "MAIN":
-        result = Rules(game: game.toUpperAscii(), width: 10, height: 20, full_height: 23, place_delay: 0.0, 
+        result = Rules(game: game.toUpperAscii(), width: 10, visible_height: 20, height: 23, place_delay: 0.0, 
         clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
+        bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+        )
+        result.bag_minos = newBag(result)
+    elif game.toUpperAscii() == "MINI TESTING":
+        result = Rules(game: game.toUpperAscii(), width: 6, visible_height: 6, height: 6, place_delay: 0.0, 
+        clear_delay: 0.0, spawn_x: 2, spawn_y: 4, allow_clutch_clear: false, softdrop_duration: 0, 
         bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
         )
         result.bag_minos = newBag(result)
@@ -257,7 +265,7 @@ proc newRules(game: string): Rules =
 
 # Generates a new empty board for use
 proc newBoard(rules: Rules): Tensor[int] =
-    return zeros[int]([rules.full_height, rules.width])
+    return zeros[int]([rules.height, rules.width])
 
 
 # Builds from top to bottom
@@ -269,7 +277,7 @@ proc str_to_board(str: string): Tensor[int] =
 # Am overloading because I wanted to make rules an optional argument and wanted to try this method out
 proc str_to_board(str: string, rules: Rules): Tensor[int] =
 
-    result = toSeq(str).toTensor().reshape([rules.full_height, rules.width]).map(parse_char_to_int)
+    result = toSeq(str).toTensor().reshape([rules.height, rules.width]).map(parse_char_to_int)
     return result
 
 
@@ -335,14 +343,33 @@ proc startGame(game: var Game): Game  =
     return game
 
 
-# Updates the state if anything changes, also returns the bool of if it moved
-proc raw_move(game: var Game, move: string): (Game, bool) =
-    # check bounds, then colision
-    case move
-    of "up":
-        echo "temp"
+# Changes the current active piece, Will reset position to spawn
+proc set_active(state: var State, rules: Rules, change: string): State =
+    let index = rules.bag_piece_names.find(change)
+    state.active = rules.bag_minos[index]
+    state.active_r = 0
+    state.active_x = rules.spawn_x
+    state.active_y = rules.spawn_y
+    return state
 
-    
+
+# for when I just want to thow the game into this proc. Also working with overloading
+proc set_active(game: var Game, change: string): Game =
+    game.state = set_active(game.state, game.rules, change)
+    return game
+
+
+proc lock_piece(board: var Tensor[int], state: State, rules: Rules): Tensor[int] =
+    echo board
+    echo state.active_x, " ", state.active_y
+    # echo state.active.rotation_shapes[state.active_r]
+    let active = state.active.rotation_shapes[state.active_r]
+    let shape = active.cleaned_shape.shape
+    for a in 0..<shape[0]:
+        for b in 0..<shape[1]:
+            # I think this is right? todo
+            board[rules.height-1-state.active_y-(active.pivot_y-active.removed_top)+a, state.active_x - (active.pivot_x - active.removed_left) + b] = active.cleaned_shape[a, b]
+    return board
 
 # this is testing right now
 
@@ -376,13 +403,20 @@ proc raw_move(game: var Game, move: string): (Game, bool) =
 # board = str.str_to_board(test_rules)
 # echo board
 
-# make a random queue to care about to ensure population
-randomize()
-var game = newGame("Main")
-game.state.queue.add("T")
-game.rules.visible_queue_len = 10
-game = startGame(game)
-echo len(game.state.queue), game.rules.bag_order, game.state.queue
+# make a random queue to care about to ensure population of queue works
+# randomize()
+# var game = newGame("Main")
+# game.state.queue.add("T")
+# game.rules.visible_queue_len = 10
+# game = startGame(game)
+# echo len(game.state.queue), game.rules.bag_order, game.state.queue
+
+var test_game = newGame("mini testing")
+test_game = startGame(test_game)
+# discard test_game.set_active("T")
+test_game.board = lock_piece(test_game.board, test_game.state, test_game.rules)
+echo test_game.state
+echo test_game.board
 
 
 # Only use this line when output is in terminal mode 
