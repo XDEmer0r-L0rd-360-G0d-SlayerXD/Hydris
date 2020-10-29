@@ -15,6 +15,7 @@ type  # consider changing these to ref objects while testing
         cleaned_shape: Tensor[int]
         cleaned_width: int
         cleaned_height: int
+        map_bounds: array[4, int]  # starts north and then goes clockwise
     Mino = object
         name: string
         rotation_shapes: seq[Mino_state]
@@ -228,6 +229,20 @@ proc generate_minos(rules: Rules): seq[Mino] =
     return result
 
 
+# This is me trying to follow the calc once and reuse idea
+# It has to be run after rules is created because rules holds the board bounds
+proc update_all_map_bounds(rules: var Rules): Rules =
+
+    var temp: Mino_state
+    for a in 0..high(rules.bag_minos):
+        for b in 0..high(rules.bag_minos[a].rotation_shapes):
+            temp = rules.bag_minos[a].rotation_shapes[b]
+            rules.bag_minos[a].rotation_shapes[b].map_bounds[0] = rules.height - (temp.pivot_y - temp.removed_top) - 1
+            rules.bag_minos[a].rotation_shapes[b].map_bounds[1] = rules.width - (temp.shape.shape[1] - temp.pivot_x - temp.removed_right - 1) - 1
+            rules.bag_minos[a].rotation_shapes[b].map_bounds[2] = temp.shape.shape[0] - temp.pivot_y - temp.removed_bottom - 1
+            rules.bag_minos[a].rotation_shapes[b].map_bounds[3] = temp.pivot_x - temp.removed_left
+    return rules
+
 # Based on the bag_piece_names in the rules, it will generate all usable pieces for the type.
 # This is where custom bags get deffined such as pentominos, or 1bags
 proc newBag(rules: Rules): seq[Mino] =
@@ -238,14 +253,14 @@ proc newBag(rules: Rules): seq[Mino] =
 # Use a names such as tetrio to preset rules object to have desired settings
 proc newRules(game: string): Rules = 
     if game.toUpperAscii() == "TETRIO":
-        result = Rules(game: game.toUpperAscii(), width: 10, visible_height: 20, height: 23, place_delay: 0.0, 
+        result = Rules(game: game.toUpperAscii(), width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
         clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
         bag_piece_names: "JLSZIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
         )
         result.bag_minos = newBag(result)
         return result
     elif game.toUpperAscii() == "MAIN":
-        result = Rules(game: game.toUpperAscii(), width: 10, visible_height: 20, height: 23, place_delay: 0.0, 
+        result = Rules(game: game.toUpperAscii(), width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
         clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
         bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
         )
@@ -359,6 +374,7 @@ proc set_active(game: var Game, change: string): Game =
     return game
 
 
+# Changes the board for locking a piece. Does no checks and assumes location is valid.
 proc lock_piece(board: var Tensor[int], state: State, rules: Rules): Tensor[int] =
     echo board
     echo state.active_x, " ", state.active_y
@@ -370,6 +386,35 @@ proc lock_piece(board: var Tensor[int], state: State, rules: Rules): Tensor[int]
             # I think this is right? todo
             board[rules.height-1-state.active_y-(active.pivot_y-active.removed_top)+a, state.active_x - (active.pivot_x - active.removed_left) + b] = active.cleaned_shape[a, b]
     return board
+
+
+# More overloading for hopefully ease of use.
+proc lock_piece(game: var Game): Game =
+    game.board = lock_piece(game.board, game.state, game.rules)
+    return game
+
+
+# Requires update_all_map_bounds to have been run before to ensure the boarders are correct.
+# The state needs to be updated with the new boarders rn
+proc is_valid_location(board: Tensor[int], state: State): bool =
+    
+    let active = state.active.rotation_shapes[state.active_r]
+
+    # check bounds
+    if state.active_y > active.map_bounds[0] or state.active_x > active.map_bounds[1] or state.active_y < active.map_bounds[2] or state.active_x < active.map_bounds[3]:
+        return false
+    # check colision
+    
+    for a in 0..<active.cleaned_shape.shape[0]:
+        for b in 0..<active.cleaned_shape.shape[1]:
+            # I think this is right? todo
+            if board[board.shape[0]-1-state.active_y-(active.pivot_y-active.removed_top)+a, state.active_x - (active.pivot_x - active.removed_left) + b] == 1 and active.cleaned_shape[a, b] == 1:
+                return false
+    return true
+
+
+
+
 
 # this is testing right now
 
@@ -413,10 +458,15 @@ proc lock_piece(board: var Tensor[int], state: State, rules: Rules): Tensor[int]
 
 var test_game = newGame("mini testing")
 test_game = startGame(test_game)
-# discard test_game.set_active("T")
-test_game.board = lock_piece(test_game.board, test_game.state, test_game.rules)
-echo test_game.state
+discard test_game.set_active("T")
+# test_game.board = lock_piece(test_game.board, test_game.state, test_game.rules)
+# echo test_game.state
 echo test_game.board
+test_game.rules = update_all_map_bounds(test_game.rules)
+discard test_game.set_active(test_game.state.active.name)
+test_game.state.active_y = test_game.state.active_y + 1
+# echo test_game.rules.bag_minos[0].rotation_shapes[0]
+echo is_valid_location(test_game.board, test_game.state)
 
 
 # Only use this line when output is in terminal mode 
