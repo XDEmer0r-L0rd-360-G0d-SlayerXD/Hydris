@@ -1,4 +1,6 @@
-import tables, arraymancer, strutils, math, sequtils, random
+{.experimental: "codeReordering".}
+import tables, arraymancer, sequtils, strutils, strformat, rdstdin
+# import math, random
 
 # cordinates always start from the top left excep for the board which is the only thing that starts at the bottom left
 
@@ -60,6 +62,8 @@ type  # consider changing these to ref objects while testing
         board: Tensor[int]
         state: State
         stats: Stats
+    Action {.pure.} = enum
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop
 
 var game*: Game
 var rules* = addr(game.rules)
@@ -112,18 +116,26 @@ proc raiseError(msg: string) =
     raise e
 
 
+# Shallow copy all keys from t2 into t1
 proc merge(t1: var Table, t2: Table) =
     for a in t2.keys:
         t1[a] = t2[a]
 
 
-proc rotate_tensor(ten: var Tensor) =
+# Assumes square and goes clockwise
+proc rotate_tensor(ten: var Tensor, rotations: int = 1) =
+    let extra = (((rotations mod 4) + 4) mod 4) - 1
+    if extra < 0:
+        return
     let size = ten.shape[0]
     var temp = ten.zeros_like()
     for a in 0 ..< size:
         for b in 0 ..< size:
             temp[a, b] = ten[size - 1 - b, a]
     ten = temp
+    if extra > 0:
+        rotate_tensor(ten, extra)  # Technically recursive but should never be more than 3
+
 
 
 # generate the rules.bag_minos based on rules
@@ -190,6 +202,13 @@ proc createMinos =
         rules.bag_minos.add(piece_data)
 
 
+proc get_mino(name: string): Mino =
+    for a in rules.bag_minos:
+        if a.name == name:
+            return a
+    # no check done for fake mino names
+
+
 # Use a names such as tetrio to preset rules object to have desired settings
 proc setRules(name: string) = 
     case name:
@@ -222,14 +241,155 @@ proc setRules(name: string) =
     createMinos()
 
 
+# todo fix this to also show where the active piece is located
+proc print_game =
+    var temp = test_location_custom
+    for a in 0 ..< rules.height:
+        var line: seq[int]
+        for b in 0 ..< rules.width:
+            line.add(game.board[a, b])
+        echo line
+    echo fmt"({game.state.hold})  {game.state.active.name}  {game.state.queue}"
+
+
+# A test that can happen without messing with game state
+proc test_location_custom(x: int, y: int, r: int, m: Mino, t: Tensor[int]): (Tensor[int], bool, bool) =  # (out map, possible location, works with colisions)
+    if x < m.rotation_shapes[r].map_bounds[3] or x > m.rotation_shapes[r].map_bounds[1] or y > m.rotation_shapes[r].map_bounds[0] or y < m.rotation_shapes[r].map_bounds[2]:
+        return (t, false, false)
+
+    var colissions = false
+    var base = zeros_like(t)
+
+    let active = m.rotation_shapes[r]
+    let shape = active.cleaned_shape.shape
+    for a in 0..<shape[0]:
+        for b in 0..<shape[1]:
+            # I think this is right? todo
+            base[base.shape[0]-1-y-(active.pivot_y-active.removed_top)+a, x - (active.pivot_x - active.removed_left) + b] = active.cleaned_shape[a, b]
+            if t[base.shape[0]-1-y-(active.pivot_y-active.removed_top)+a, x - (active.pivot_x - active.removed_left) + b] == 1 and active.cleaned_shape[a, b] == 1:
+                colissions = true
+    base += t
+    return (base, true, colissions)
+    
+
+
+# Test current location
+proc test_current_location(): (Tensor[int], bool, bool) =
+    return test_location_custom(game.state.active_x, game.state.active_y, game.state.active_r, game.state.active, game.board)
+
+
+# A way to get user input rn
+proc get_user_action(): Action =
+    echo fmt"User input(0-7)>"
+    var action = readline(stdin)
+    # var action = "3"
+    # echo action, type(action)
+    case action:
+    of "0":
+        result = Action.lock
+    of "1":
+        result = Action.up
+    of "2":
+        result = Action.right
+    of "3":
+        result = Action.down
+    of "4":
+        result = Action.left
+    of "5":
+        result = Action.counter_clockwise
+    of "6":
+        result = Action.clockwise
+    of "7":
+        result = Action.hard_drop
+
+
+# Interprates the Action enum
+proc get_new_location(a: Action): array[3, int] =
+    case a:
+    of Action.lock:
+        return [game.state.active_x, game.state.active_y, game.state.active_r]
+    of Action.up:
+        return [game.state.active_x, game.state.active_y + 1, game.state.active_r]
+    of Action.right:
+        return [game.state.active_x + 1, game.state.active_y, game.state.active_r]
+    of Action.down:
+        return [game.state.active_x, game.state.active_y - 1, game.state.active_r]
+    of Action.left:
+        return [game.state.active_x - 1, game.state.active_y, game.state.active_r]
+    of Action.counter_clockwise:
+        return [game.state.active_x, game.state.active_y, game.state.active_r + 3 mod 4]
+    of Action.clockwise:
+        return [game.state.active_x, game.state.active_y, game.state.active_r + 1 mod 4]
+    of Action.hard_drop:
+        return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r].map_bounds[2], game.state.active_r]
+
 
 
 proc newGame =
     var game_type = "MINI TESTING"
     setRules(game_type)
     game.board = zeros[int]([rules.height, rules.width])
+    game.state = State()
+    game.stats = Stats()
     
+
+# prepare the initial state
+proc startGame =
+    game.state.game_active = true
+    game.state.active = rules.bag_minos[6]  # todo use random
+    game.state.active_x = rules.spawn_x
+    game.state.active_y = rules.spawn_y
+    game.state.active_r = 0
+    game.state.hold = "-"
+    game.state.queue = "LSIOZS"  # todo use random
+    game.state.current_combo = 0
+
+
+proc gameLoop =
+    
+    while game.state.game_active:
+        echo game.board
+        var current = test_current_location()
+        if not current[1] or current[2]:
+            game.state.game_active = false
+            continue
+        echo current[0]
+        
+        var valid = false
+        var action: Action
+        var movement: array[3, int]
+        var test: (Tensor[int], bool, bool)
+        while not valid:
+            action = get_user_action()
+            movement = get_new_location(action)  # todo Impliment the kick table
+            var test = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+            if test[1] and not test[2]:
+                valid = true
+                continue
+        
+        case action:
+        of Action.up, Action.right, Action.down, Action.left, Action.counter_clockwise, Action.clockwise, Action.hard_drop:
+            game.state.active_x = movement[0]
+            game.state.active_y = movement[1]
+            game.state.active_r = movement[2]
+        of Action.lock:
+            var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+            game.board = new_loc[0]
+            game.state.active = get_mino($game.state.queue[0])
+            game.state.queue = game.state.queue[1 .. game.state.queue.high]
+            game.state.hold_available = true
+            game.state.active_x = game.rules.spawn_x
+            game.state.active_y = game.rules.spawn_y
+            game.state.active_r = 0
+
 
 
 newGame()
-echo rules.bag_minos[0]
+startGame()
+gameLoop()
+# # print_game()
+# # game.board[2, 3] = 1
+# # echo test_location_custom(1, 3, 3, rules.bag_minos[6], game.board)
+# echo test_location()
+
+echo "Done"
