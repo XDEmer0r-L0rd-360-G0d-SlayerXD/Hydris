@@ -243,17 +243,18 @@ proc setRules(name: string) =
 
 # todo fix this to also show where the active piece is located
 proc print_game =
-    var temp = test_location_custom
+    var temp = test_current_location()
     for a in 0 ..< rules.height:
         var line: seq[int]
         for b in 0 ..< rules.width:
-            line.add(game.board[a, b])
+            line.add(temp[0][a, b])
         echo line
     echo fmt"({game.state.hold})  {game.state.active.name}  {game.state.queue}"
 
 
 # A test that can happen without messing with game state
-proc test_location_custom(x: int, y: int, r: int, m: Mino, t: Tensor[int]): (Tensor[int], bool, bool) =  # (out map, possible location, works with colisions)
+proc test_location_custom(x: int, y: int, r_val: int, m: Mino, t: Tensor[int]): (Tensor[int], bool, bool) =  # (out map, possible location, requires colisions)
+    let r = r_val mod 4
     if x < m.rotation_shapes[r].map_bounds[3] or x > m.rotation_shapes[r].map_bounds[1] or y > m.rotation_shapes[r].map_bounds[0] or y < m.rotation_shapes[r].map_bounds[2]:
         return (t, false, false)
 
@@ -305,6 +306,7 @@ proc get_user_action(): Action =
 
 # Interprates the Action enum
 proc get_new_location(a: Action): array[3, int] =
+    
     case a:
     of Action.lock:
         return [game.state.active_x, game.state.active_y, game.state.active_r]
@@ -345,43 +347,62 @@ proc startGame =
     game.state.current_combo = 0
 
 
+proc do_action(move: Action): bool =
+    
+    # var valid = false
+    # var action: Action
+    # var movement: array[3, int]
+    # var test: (Tensor[int], bool, bool)
+    # while not valid:
+    #     action = get_user_action()
+    #     movement = get_new_location(action)  # todo Impliment the kick table
+    #     var test = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+    #     if test[1] and not test[2]:
+    #         valid = true
+    #         continue
+    
+    case move:
+    of Action.up, Action.right, Action.down, Action.left, Action.counter_clockwise, Action.clockwise, Action.hard_drop:
+        var movement = get_new_location(move)
+        var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+        if not new_loc[1] or new_loc[2]:
+            return false
+        game.state.active_x = movement[0]
+        game.state.active_y = movement[1]
+        game.state.active_r = movement[2]
+    of Action.lock:
+        var movement = get_new_location(move)
+        var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+        if not new_loc[1] or new_loc[2]:
+            return false
+        game.board = new_loc[0]
+        game.state.active = get_mino($game.state.queue[0])
+        game.state.queue = game.state.queue[1 .. game.state.queue.high]
+        game.state.hold_available = true
+        game.state.active_x = game.rules.spawn_x
+        game.state.active_y = game.rules.spawn_y
+        game.state.active_r = 0
+    
+    return true
+
+
+
 proc gameLoop =
     
     while game.state.game_active:
-        echo game.board
+        
         var current = test_current_location()
         if not current[1] or current[2]:
             game.state.game_active = false
             continue
-        echo current[0]
-        
-        var valid = false
-        var action: Action
-        var movement: array[3, int]
-        var test: (Tensor[int], bool, bool)
-        while not valid:
-            action = get_user_action()
-            movement = get_new_location(action)  # todo Impliment the kick table
-            var test = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
-            if test[1] and not test[2]:
-                valid = true
-                continue
-        
-        case action:
-        of Action.up, Action.right, Action.down, Action.left, Action.counter_clockwise, Action.clockwise, Action.hard_drop:
-            game.state.active_x = movement[0]
-            game.state.active_y = movement[1]
-            game.state.active_r = movement[2]
-        of Action.lock:
-            var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
-            game.board = new_loc[0]
-            game.state.active = get_mino($game.state.queue[0])
-            game.state.queue = game.state.queue[1 .. game.state.queue.high]
-            game.state.hold_available = true
-            game.state.active_x = game.rules.spawn_x
-            game.state.active_y = game.rules.spawn_y
-            game.state.active_r = 0
+        print_game()
+    
 
+        # We assume that, at bare minimum, lock is possible
+        var valid = false
+        while not valid:
+            var move = get_user_action()
+            valid = do_action(move)
 
 
 newGame()
