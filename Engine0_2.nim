@@ -1,5 +1,6 @@
 {.experimental: "codeReordering".}
 import tables, arraymancer, sequtils, strutils, strformat, rdstdin
+import raylib, rayutils
 # import math, random
 
 # cordinates always start from the top left excep for the board which is the only thing that starts at the bottom left
@@ -386,23 +387,55 @@ proc do_action(move: Action): bool =
     return true
 
 
+proc draw_game() =
+    # We assume were in drawing mode
+    let x_offset = 50
+    let y_offset = 50
+    let size = 25
+
+    let loc = test_current_location()[0]
+    var val: int
+    var col: Color
+    for a in 0 ..< rules.height:
+        for b in 0 ..< rules.width:
+            val = loc[a, b]
+            if val == 1:
+                col = makecolor(200, 0, 0)
+                col = GREEN
+            else:
+                col = makecolor(50, 50, 50)
+                col = RED
+            echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
+            DrawRectangle(b * size + x_offset, a * size + y_offset, size, size, GREEN)
+
+
 
 proc gameLoop =
     
-    while game.state.game_active:
+    InitWindow(800, 800, "Hydris")
+
+    while game.state.game_active and not WindowShouldClose():
         
         var current = test_current_location()
         if not current[1] or current[2]:
             game.state.game_active = false
             continue
         print_game()
-    
+
+        ClearBackground(makecolor(0, 0, 50))
+        BeginDrawing()
+        
+        draw_game()
+
+        EndDrawing()
 
         # We assume that, at bare minimum, lock is possible
         var valid = false
-        while not valid:
+        while not valid and not WindowShouldClose():
             var move = get_user_action()
             valid = do_action(move)
+    
+    CloseWindow()
 
 
 newGame()
