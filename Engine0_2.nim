@@ -330,11 +330,18 @@ proc get_new_location(a: Action): array[3, int] =
 proc evaluate_board() =
     var remove: seq[int]
     for a in 0 ..< rules.height:
-        if sum(game.board[a]) == rules.width:
+        if sum(game.board[a, _]) == rules.width:
             remove.add(a)
             
-
-
+    var temp = zeros_like(game.board)
+    var skips = 0
+    for a in countdown(rules.height - 1, 0):
+        if a notin remove:
+            temp[a + skips, _] = game.board[a, _]
+        else:
+            skips.inc()
+    
+    game.board = temp
 
 
 proc newGame =
@@ -433,6 +440,8 @@ proc gameLoop =
             game.state.game_active = false
             continue
         # print_game()
+
+        evaluate_board()
 
         ClearBackground(makecolor(0, 0, 30))
         BeginDrawing()
