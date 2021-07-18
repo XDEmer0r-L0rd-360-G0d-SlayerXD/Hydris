@@ -391,11 +391,7 @@ proc draw_game() =
     # We assume were in drawing mode
     let x_offset = 50
     let y_offset = 50
-<<<<<<< HEAD
     let size = 50
-=======
-    let size = 25
->>>>>>> 8a247c41dd7f4373746e350446d1f3ad84c00fea
 
     let loc = test_current_location()[0]
     var val: int
@@ -409,23 +405,15 @@ proc draw_game() =
             else:
                 col = makecolor(50, 50, 50)
                 col = RED
-<<<<<<< HEAD
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
             DrawRectangle(b * size + x_offset, a * size + y_offset, size, size, col)
-=======
-            echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
-            DrawRectangle(b * size + x_offset, a * size + y_offset, size, size, GREEN)
->>>>>>> 8a247c41dd7f4373746e350446d1f3ad84c00fea
 
 
 
 proc gameLoop =
     
     InitWindow(800, 800, "Hydris")
-<<<<<<< HEAD
     SetTargetFPS(60)
-=======
->>>>>>> 8a247c41dd7f4373746e350446d1f3ad84c00fea
 
     while game.state.game_active and not WindowShouldClose():
         
@@ -434,21 +422,14 @@ proc gameLoop =
         if not current[1] or current[2]:
             game.state.game_active = false
             continue
-<<<<<<< HEAD
         # print_game()
 
         ClearBackground(makecolor(0, 0, 30))
-=======
-        print_game()
-
-        ClearBackground(makecolor(0, 0, 50))
->>>>>>> 8a247c41dd7f4373746e350446d1f3ad84c00fea
         BeginDrawing()
         
         draw_game()
 
         EndDrawing()
-<<<<<<< HEAD
 
         block key_detection:
             var action: Action
@@ -481,14 +462,6 @@ proc gameLoop =
             if pressed:
                 discard do_action(action)
 
-=======
-
-        # We assume that, at bare minimum, lock is possible
-        var valid = false
-        while not valid and not WindowShouldClose():
-            var move = get_user_action()
-            valid = do_action(move)
->>>>>>> 8a247c41dd7f4373746e350446d1f3ad84c00fea
     
     CloseWindow()
 
