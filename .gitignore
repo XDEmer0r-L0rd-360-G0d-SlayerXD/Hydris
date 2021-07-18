@@ -3,3 +3,10 @@ temp_timer.py
 *.exe
 crown*
 Engine.nim
+libraylib.dll
+raygui.dll
+raygui.nim
+raylib.nim
+raymath.nim
+rayutils.nim
+rlgl.nim

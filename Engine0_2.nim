@@ -1,5 +1,6 @@
 {.experimental: "codeReordering".}
 import tables, arraymancer, sequtils, strutils, strformat, rdstdin
+import raylib, rayutils
 # import math, random
 
 # cordinates always start from the top left excep for the board which is the only thing that starts at the bottom left
@@ -323,7 +324,7 @@ proc get_new_location(a: Action): array[3, int] =
     of Action.clockwise:
         return [game.state.active_x, game.state.active_y, game.state.active_r + 1 mod 4]
     of Action.hard_drop:
-        return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r].map_bounds[2], game.state.active_r]
+        return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
 
 
 
@@ -386,23 +387,83 @@ proc do_action(move: Action): bool =
     return true
 
 
+proc draw_game() =
+    # We assume were in drawing mode
+    let x_offset = 50
+    let y_offset = 50
+    let size = 50
+
+    let loc = test_current_location()[0]
+    var val: int
+    var col: Color
+    for a in 0 ..< rules.height:
+        for b in 0 ..< rules.width:
+            val = loc[a, b]
+            if val == 1:
+                col = makecolor(200, 0, 0)
+                col = GREEN
+            else:
+                col = makecolor(50, 50, 50)
+                col = RED
+            # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
+            DrawRectangle(b * size + x_offset, a * size + y_offset, size, size, col)
+
+
 
 proc gameLoop =
     
-    while game.state.game_active:
+    InitWindow(800, 800, "Hydris")
+    SetTargetFPS(60)
+
+    while game.state.game_active and not WindowShouldClose():
         
+        # Check for game over
         var current = test_current_location()
         if not current[1] or current[2]:
             game.state.game_active = false
             continue
-        print_game()
-    
+        # print_game()
 
-        # We assume that, at bare minimum, lock is possible
-        var valid = false
-        while not valid:
-            var move = get_user_action()
-            valid = do_action(move)
+        ClearBackground(makecolor(0, 0, 30))
+        BeginDrawing()
+        
+        draw_game()
+
+        EndDrawing()
+
+        block key_detection:
+            var action: Action
+            var pressed = true
+            if IsKeyPressed(KEY_J):
+                action = Action.left
+            elif IsKeyPressed(KEY_K):
+                action = Action.down
+            elif IsKeyPressed(KEY_L):
+                action = Action.right
+            elif IsKeyPressed(KEY_D):
+                action = Action.counter_clockwise
+            elif IsKeyPressed(KEY_F):
+                action = Action.clockwise
+            elif IsKeyPressed(KEY_SPACE):
+                action = Action.hard_drop
+            elif IsKeyPressed(KEY_SEMICOLON):
+                action = Action.up
+            elif IsKeyPressed(KEY_ENTER):
+                action = Action.lock
+            else:
+                pressed = false
+            
+            # wierd and buggy
+            # if pressed:
+            #     if do_action(action):
+            #         ClearBackground(GRAY)
+            #     else:
+            #         ClearBackground(DARKGRAY)
+            if pressed:
+                discard do_action(action)
+
+    
+    CloseWindow()
 
 
 newGame()
