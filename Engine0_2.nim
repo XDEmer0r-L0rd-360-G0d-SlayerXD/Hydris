@@ -462,6 +462,10 @@ proc gameLoop =
             if pressed:
                 discard do_action(action)
 
+            if IsKeyPressed(KEY_R):
+                newGame()
+                startGame()
+
     
     CloseWindow()
 
