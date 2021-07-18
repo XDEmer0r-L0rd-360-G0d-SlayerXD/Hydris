@@ -327,6 +327,15 @@ proc get_new_location(a: Action): array[3, int] =
         return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
 
 
+proc evaluate_board() =
+    var remove: seq[int]
+    for a in 0 ..< rules.height:
+        if sum(game.board[a]) == rules.width:
+            remove.add(a)
+            
+
+
+
 
 proc newGame =
     var game_type = "MINI TESTING"
@@ -392,6 +401,7 @@ proc draw_game() =
     let x_offset = 50
     let y_offset = 50
     let size = 50
+    let grid_lines = 1
 
     let loc = test_current_location()[0]
     var val: int
@@ -406,7 +416,7 @@ proc draw_game() =
                 col = makecolor(50, 50, 50)
                 col = RED
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
-            DrawRectangle(b * size + x_offset, a * size + y_offset, size, size, col)
+            DrawRectangle(b * (size + grid_lines) + x_offset, a * (size + grid_lines) + y_offset, size, size, col)
 
 
 
@@ -453,12 +463,6 @@ proc gameLoop =
             else:
                 pressed = false
             
-            # wierd and buggy
-            # if pressed:
-            #     if do_action(action):
-            #         ClearBackground(GRAY)
-            #     else:
-            #         ClearBackground(DARKGRAY)
             if pressed:
                 discard do_action(action)
 
