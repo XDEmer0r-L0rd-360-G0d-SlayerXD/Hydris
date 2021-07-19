@@ -1,5 +1,5 @@
 {.experimental: "codeReordering".}
-import tables, arraymancer, sequtils, strutils, strformat, rdstdin
+import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random
 import raylib, rayutils
 # import math, random
 
@@ -37,7 +37,7 @@ type  # consider changing these to ref objects while testing
         softdrop_duration: float
         can_hold: bool
         bag_piece_names: string
-        bag_order: string
+        bag_type: string
         bag_minos: seq[Mino]
         kick_table: string
         visible_queue_len: int
@@ -216,22 +216,22 @@ proc setRules(name: string) =
         of "TETRIO":
             game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
             clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
-            bag_piece_names: "JLSZIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
+            bag_piece_names: "JLSZIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
             )
         of "MAIN":
             game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
             clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
-            bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+            bag_piece_names: "JLZSIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
             )
         of "MINI TESTING":
             game.rules = Rules(name: name, width: 6, visible_height: 6, height: 10, place_delay: 0.0, 
             clear_delay: 0.0, spawn_x: 2, spawn_y: 8, allow_clutch_clear: false, softdrop_duration: 0, 
-            bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+            bag_piece_names: "JLZSIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
             )
         of "WACKY":
             game.rules = Rules(name: name, width: 8, visible_height: 5, height: 5, place_delay: 0.0, 
             clear_delay: 0.0, spawn_x: 2, spawn_y: 3, allow_clutch_clear: false, softdrop_duration: 0, 
-            bag_piece_names: "TTT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+            bag_piece_names: "TTT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
             )
         else:
             var e: ref ValueError
@@ -391,6 +391,9 @@ proc do_action(move: Action): bool =
                 break
         if not hit:
             game.state.active_y = movement[1]
+        
+        # todo change this probably
+        discard do_action(Action.lock)
 
     of Action.lock:
         var movement = get_new_location(move)
@@ -406,6 +409,21 @@ proc do_action(move: Action): bool =
         game.state.active_r = 0
     
     return true
+
+
+proc fix_queue() =
+    
+    case rules.bag_type:
+    of "random":
+        while len(game.state.queue) < rules.visible_queue_len + 3:
+            game.state.queue = game.state.queue & $sample(rules.bag_piece_names)
+    of "7 bag":
+        var temp = rules.bag_piece_names
+        while len(game.state.queue) < rules.visible_queue_len + 7:
+            temp.shuffle()
+            game.state.queue = game.state.queue & temp
+
+
 
 
 proc draw_game() =
@@ -431,10 +449,9 @@ proc draw_game() =
             DrawRectangle(b * (size + grid_lines) + x_offset, a * (size + grid_lines) + y_offset, size, size, col)
 
 
-
 proc gameLoop =
     
-    InitWindow(800, 800, "Hydris")
+    InitWindow(800, 700, "Hydris")
     SetTargetFPS(60)
 
     const restart_on_death = true
@@ -447,7 +464,7 @@ proc gameLoop =
             if restart_on_death:
                 newGame()
                 startGame()
-                print_game()
+                echo "COLLISION == DEATH -> RESTART"
             else:
                 game.state.game_active = false
                 continue
@@ -455,6 +472,7 @@ proc gameLoop =
         # print_game()
 
         evaluate_board()
+        fix_queue()
 
         ClearBackground(makecolor(0, 0, 30))
         BeginDrawing()
