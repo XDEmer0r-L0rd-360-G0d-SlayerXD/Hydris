@@ -224,8 +224,8 @@ proc setRules(name: string) =
             bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
             )
         of "MINI TESTING":
-            game.rules = Rules(name: name, width: 6, visible_height: 6, height: 6, place_delay: 0.0, 
-            clear_delay: 0.0, spawn_x: 2, spawn_y: 4, allow_clutch_clear: false, softdrop_duration: 0, 
+            game.rules = Rules(name: name, width: 6, visible_height: 6, height: 10, place_delay: 0.0, 
+            clear_delay: 0.0, spawn_x: 2, spawn_y: 8, allow_clutch_clear: false, softdrop_duration: 0, 
             bag_piece_names: "JLZSIOT", bag_order: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
             )
         of "WACKY":
@@ -360,26 +360,15 @@ proc startGame =
     game.state.active_y = rules.spawn_y
     game.state.active_r = 0
     game.state.hold = "-"
-    game.state.queue = "LSIOZS"  # todo use random
+    game.state.queue = "IIIILSIOZS"  # todo use random
     game.state.current_combo = 0
 
 
 proc do_action(move: Action): bool =
     
-    # var valid = false
-    # var action: Action
-    # var movement: array[3, int]
-    # var test: (Tensor[int], bool, bool)
-    # while not valid:
-    #     action = get_user_action()
-    #     movement = get_new_location(action)  # todo Impliment the kick table
-    #     var test = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
-    #     if test[1] and not test[2]:
-    #         valid = true
-    #         continue
-    
     case move:
-    of Action.up, Action.right, Action.down, Action.left, Action.counter_clockwise, Action.clockwise, Action.hard_drop:
+    of Action.up, Action.right, Action.down, Action.left, Action.counter_clockwise, Action.clockwise:
+        # get new pos, test, change active cords
         var movement = get_new_location(move)
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
         if not new_loc[1] or new_loc[2]:
@@ -387,6 +376,22 @@ proc do_action(move: Action): bool =
         game.state.active_x = movement[0]
         game.state.active_y = movement[1]
         game.state.active_r = movement[2]
+    of Action.hard_drop:
+        var movement = get_new_location(move)
+        var offset = 0
+        var new_loc: (Tensor[int], bool, bool)
+        var hit = false
+        while movement[1] <= game.state.active_y - offset:
+            new_loc = test_location_custom(movement[0], game.state.active_y - offset, movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                offset.inc()
+            else:
+                game.state.active_y = game.state.active_y - offset + 1
+                hit = true
+                break
+        if not hit:
+            game.state.active_y = movement[1]
+
     of Action.lock:
         var movement = get_new_location(move)
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
@@ -432,13 +437,21 @@ proc gameLoop =
     InitWindow(800, 800, "Hydris")
     SetTargetFPS(60)
 
+    const restart_on_death = true
+
     while game.state.game_active and not WindowShouldClose():
         
         # Check for game over
         var current = test_current_location()
         if not current[1] or current[2]:
-            game.state.game_active = false
-            continue
+            if restart_on_death:
+                newGame()
+                startGame()
+                print_game()
+            else:
+                game.state.game_active = false
+                continue
+            
         # print_game()
 
         evaluate_board()
