@@ -64,7 +64,7 @@ type  # consider changing these to ref objects while testing
         state: State
         stats: Stats
     Action {.pure.} = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hold
     Visual_settings = object
         game_field_offset_left: float
         game_field_offset_top: float
@@ -347,6 +347,8 @@ proc get_new_location(a: Action): array[3, int] =
         return [game.state.active_x, game.state.active_y, game.state.active_r + 1 mod 4]
     of Action.hard_drop:
         return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
+    else:
+        return [game.state.active_x, game.state.active_y, game.state.active_r]  # this is a generic fallback
 
 
 proc evaluate_board() =
@@ -430,6 +432,22 @@ proc do_action(move: Action): bool =
         game.state.active_y = game.rules.spawn_y
         game.state.active_r = 0
     
+    of Action.hold:
+        # todo limit holds and use that when to rutern true or false
+        var temp = game.state.active.name
+        if game.state.hold == "-":
+            game.state.hold = temp
+            game.state.active = get_mino($game.state.queue[0])
+            game.state.queue = game.state.queue[1 .. game.state.queue.high]
+        else:
+            game.state.active = get_mino(game.state.hold)
+            game.state.hold = temp
+
+        game.state.hold_available = false
+        game.state.active_x = game.rules.spawn_x
+        game.state.active_y = game.rules.spawn_y
+        game.state.active_r = 0
+    
     return true
 
 
@@ -459,6 +477,7 @@ proc draw_game() =
             DrawRectangle(x * (size + grid_lines) + x_offset, y * (size + grid_lines) + y_offset, size, size, col)
         
 
+    # Draw the game board
     let loc = test_current_location()[0]
     var val: int
     var col: Color
@@ -472,6 +491,7 @@ proc draw_game() =
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
             draw_square(b + v.game_field_board_padding_left, a, col)
 
+    # Draw the queue
     var off_y = 0
     var mino: Mino
     for a in 0 ..< rules.visible_queue_len:
@@ -484,7 +504,16 @@ proc draw_game() =
                     col = makecolor(50, 50, 50)
                 draw_square(settings.visuals.game_field_board_padding_left + rules.width + 1 + x, a * 5 + y, col)
     
-
+    if game.state.hold != "-":
+        mino = get_mino(game.state.hold)
+        for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
+            for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
+                if mino.rotation_shapes[0].shape[y, x] == 1:
+                    col = makecolor(200, 0, 0)
+                else:
+                    col = makecolor(50, 50, 50)
+                draw_square(x, y, col)
+        
 
 
 proc set_settings() =
@@ -548,6 +577,8 @@ proc gameLoop =
                 action = Action.up
             elif IsKeyPressed(KEY_ENTER):
                 action = Action.lock
+            elif IsKeyPressed(KEY_A):
+                action = Action.hold
             else:
                 pressed = false
             
