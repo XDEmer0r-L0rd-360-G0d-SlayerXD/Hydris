@@ -65,9 +65,31 @@ type  # consider changing these to ref objects while testing
         stats: Stats
     Action {.pure.} = enum
         lock, up, right, down, left, counter_clockwise, clockwise, hard_drop
+    Visual_settings = object
+        game_field_offset_left: float
+        game_field_offset_top: float
+        game_field_units_wide: int
+        game_field_board_padding_left: int
+        window_height: int
+        window_width: int
+    Settings = object
+        visuals: Visual_settings
 
 var game*: Game
 var rules* = addr(game.rules)
+var settings*: Settings
+
+
+# Helpers
+
+proc `*`(x: float, y: int): float =
+    return x * toFloat(y)
+
+proc `/`(x: float, y: int): float =
+    return x / toFloat(y)
+
+
+# Main
 
 const kicks* = {
     "modern_kicks_all": {"0>1": @[(0,0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
@@ -226,7 +248,7 @@ proc setRules(name: string) =
         of "MINI TESTING":
             game.rules = Rules(name: name, width: 6, visible_height: 6, height: 10, place_delay: 0.0, 
             clear_delay: 0.0, spawn_x: 2, spawn_y: 8, allow_clutch_clear: false, softdrop_duration: 0, 
-            bag_piece_names: "JLZSIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+            bag_piece_names: "JLZSIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
             )
         of "WACKY":
             game.rules = Rules(name: name, width: 8, visible_height: 5, height: 5, place_delay: 0.0, 
@@ -449,9 +471,19 @@ proc draw_game() =
             DrawRectangle(b * (size + grid_lines) + x_offset, a * (size + grid_lines) + y_offset, size, size, col)
 
 
+proc set_settings() =
+    # Todo check for file later. I'll just use defaults for now.
+    settings.visuals.game_field_offset_left = 0.1
+    settings.visuals.game_field_offset_top = 0.1
+    settings.visuals.game_field_units_wide = 10 + rules.width  # todo change the order of calling settings and game to allow loading later
+    settings.visuals.game_field_board_padding_left = 5
+    settings.visuals.window_height = 700
+    settings.visuals.window_width = 800
+
+
 proc gameLoop =
     
-    InitWindow(800, 700, "Hydris")
+    InitWindow(settings.visuals.window_width, settings.visuals.window_height, "Hydris")
     SetTargetFPS(60)
 
     const restart_on_death = true
@@ -515,6 +547,7 @@ proc gameLoop =
 
 
 newGame()
+set_settings()
 startGame()
 gameLoop()
 # # print_game()
