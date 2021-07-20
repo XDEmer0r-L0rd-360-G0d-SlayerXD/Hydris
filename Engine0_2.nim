@@ -238,7 +238,7 @@ proc setRules(name: string) =
         of "TETRIO":
             game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
             clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
-            bag_piece_names: "JLSZIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
+            bag_piece_names: "JLSZIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
             )
         of "MAIN":
             game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
@@ -371,7 +371,7 @@ proc evaluate_board() =
 
 
 proc newGame =
-    var game_type = "MINI TESTING"
+    var game_type = "TETRIO"
     setRules(game_type)
     game.board = zeros[int]([rules.height, rules.width])
     game.state = State()
@@ -483,6 +483,9 @@ proc fix_queue() =
         while len(game.state.queue) < rules.visible_queue_len + 7:
             temp.shuffle()
             game.state.queue = game.state.queue & temp
+    if game.state.active.name == "-":
+        game.state.active = get_mino($game.state.queue[0])
+        game.state.queue = game.state.queue[1 .. game.state.queue.high]
 
 
 proc draw_game() =
@@ -543,7 +546,7 @@ proc set_settings() =
     settings.visuals.game_field_offset_top = 0.1
     settings.visuals.game_field_units_wide = 10 + rules.width  # todo change the order of calling settings and game to allow loading later
     settings.visuals.game_field_board_padding_left = 5
-    settings.visuals.window_height = 700
+    settings.visuals.window_height = 900
     settings.visuals.window_width = 800
 
 
@@ -557,6 +560,9 @@ proc gameLoop =
     while game.state.game_active and not WindowShouldClose():
         # DrawFPS(10, 10)
         # Check for game over
+
+        fix_queue()
+
         var current = test_current_location()
         if not current[1] or current[2]:
             if restart_on_death:
@@ -570,7 +576,6 @@ proc gameLoop =
         # print_game()
 
         evaluate_board()
-        fix_queue()
 
         ClearBackground(makecolor(0, 0, 30))
         BeginDrawing()
