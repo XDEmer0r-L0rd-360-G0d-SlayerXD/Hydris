@@ -446,14 +446,18 @@ proc fix_queue() =
             game.state.queue = game.state.queue & temp
 
 
-
-
 proc draw_game() =
     # We assume were in drawing mode
-    let x_offset = 50
-    let y_offset = 50
-    let size = 50
+    let v = settings.visuals
+    let size = toInt((1 - v.game_field_offset_left * 2) * v.window_width / v.game_field_units_wide)
+    let x_offset = toInt(v.game_field_offset_left * v.window_width)
+    let y_offset = toInt(v.game_field_offset_top * v.window_height)
     let grid_lines = 1
+    
+    proc draw_square(x: int, y: int, col: Color) =
+        # This assumes drawing in the game field with a finness of the min size
+            DrawRectangle(x * (size + grid_lines) + x_offset, y * (size + grid_lines) + y_offset, size, size, col)
+        
 
     let loc = test_current_location()[0]
     var val: int
@@ -463,12 +467,24 @@ proc draw_game() =
             val = loc[a, b]
             if val == 1:
                 col = makecolor(200, 0, 0)
-                col = GREEN
             else:
                 col = makecolor(50, 50, 50)
-                col = RED
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
-            DrawRectangle(b * (size + grid_lines) + x_offset, a * (size + grid_lines) + y_offset, size, size, col)
+            draw_square(b + v.game_field_board_padding_left, a, col)
+
+    var off_y = 0
+    var mino: Mino
+    for a in 0 ..< rules.visible_queue_len:
+        mino = get_mino($game.state.queue[a])
+        for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
+            for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
+                if mino.rotation_shapes[0].shape[y, x] == 1:
+                    col = makecolor(200, 0, 0)
+                else:
+                    col = makecolor(50, 50, 50)
+                draw_square(settings.visuals.game_field_board_padding_left + rules.width + 1 + x, a * 5 + y, col)
+    
+
 
 
 proc set_settings() =
