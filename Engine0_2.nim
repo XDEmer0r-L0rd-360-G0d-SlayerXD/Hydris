@@ -381,19 +381,19 @@ proc newGame =
 # prepare the initial state
 proc startGame =
     game.state.game_active = true
-    game.state.active = rules.bag_minos[6]  # todo use random
+    game.state.active.name = "-"
     game.state.active_x = rules.spawn_x
     game.state.active_y = rules.spawn_y
     game.state.active_r = 0
     game.state.hold = "-"
-    game.state.queue = "IIIILSIOZS"  # todo use random
+    game.state.queue = ""  # todo use random
     game.state.current_combo = 0
 
 
 proc do_action(move: Action): bool =
     
     case move:
-    of Action.up, Action.right, Action.down, Action.left, Action.counter_clockwise, Action.clockwise:
+    of Action.up, Action.right, Action.down, Action.left:
         # get new pos, test, change active cords
         var movement = get_new_location(move)
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
@@ -402,6 +402,25 @@ proc do_action(move: Action): bool =
         game.state.active_x = movement[0]
         game.state.active_y = movement[1]
         game.state.active_r = movement[2]
+    of Action.counter_clockwise, Action.clockwise:
+        var movement = get_new_location(move)
+        var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+        let kicks = game.state.active.kick_table[fmt"{game.state.active_r}>{movement[2]}"]
+        var new_x: int
+        var new_y: int
+        for a in kicks:
+            new_x = movement[0] + a[0]
+            new_y = movement[1] + a[1]
+
+            new_loc = test_location_custom(new_x, new_y, movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                game.state.active_x = new_x
+                game.state.active_y = new_y
+                game.state.active_r = movement[2]
+                return true
+        return false
+
+
     of Action.hard_drop:
         var movement = get_new_location(move)
         var offset = 0
