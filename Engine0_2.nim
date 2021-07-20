@@ -342,9 +342,11 @@ proc get_new_location(a: Action): array[3, int] =
     of Action.left:
         return [game.state.active_x - 1, game.state.active_y, game.state.active_r]
     of Action.counter_clockwise:
-        return [game.state.active_x, game.state.active_y, game.state.active_r + 3 mod 4]
+        let new_r = (game.state.active_r + 3) mod 4
+        return [game.state.active_x + game.state.active.rotation_shapes[new_r].pivot_x - game.state.active.rotation_shapes[game.state.active_r].pivot_x, game.state.active_y - game.state.active.rotation_shapes[new_r].pivot_y + game.state.active.rotation_shapes[game.state.active_r].pivot_y, new_r]
     of Action.clockwise:
-        return [game.state.active_x, game.state.active_y, game.state.active_r + 1 mod 4]
+        let new_r = (game.state.active_r + 1) mod 4
+        return [game.state.active_x + game.state.active.rotation_shapes[new_r].pivot_x - game.state.active.rotation_shapes[game.state.active_r].pivot_x, game.state.active_y - game.state.active.rotation_shapes[new_r].pivot_y + game.state.active.rotation_shapes[game.state.active_r].pivot_y, new_r]
     of Action.hard_drop:
         return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
     else:
@@ -534,7 +536,7 @@ proc gameLoop =
     const restart_on_death = true
 
     while game.state.game_active and not WindowShouldClose():
-        
+        # DrawFPS(10, 10)
         # Check for game over
         var current = test_current_location()
         if not current[1] or current[2]:
