@@ -64,7 +64,7 @@ type  # consider changing these to ref objects while testing
         state: State
         stats: Stats
     Action {.pure.} = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hold
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold
     Visual_settings = object
         game_field_offset_left: float
         game_field_offset_top: float
@@ -349,6 +349,10 @@ proc get_new_location(a: Action): array[3, int] =
         return [game.state.active_x + game.state.active.rotation_shapes[new_r].pivot_x - game.state.active.rotation_shapes[game.state.active_r].pivot_x, game.state.active_y - game.state.active.rotation_shapes[new_r].pivot_y + game.state.active.rotation_shapes[game.state.active_r].pivot_y, new_r]
     of Action.hard_drop:
         return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
+    of Action.hard_right:
+        return [game.state.active.rotation_shapes[game.state.active_r].map_bounds[1], game.state.active_y, game.state.active_r]
+    of Action.hard_left:
+        return [game.state.active.rotation_shapes[game.state.active_r].map_bounds[3], game.state.active_y, game.state.active_r]
     else:
         return [game.state.active_x, game.state.active_y, game.state.active_r]  # this is a generic fallback
 
@@ -437,8 +441,38 @@ proc do_action(move: Action): bool =
         if not hit:
             game.state.active_y = movement[1]
         
-        # todo change this probably
-        discard do_action(Action.lock)
+    of Action.hard_right:
+        var movement = get_new_location(move)
+        var offset = 0
+        var new_loc: (Tensor[int], bool, bool)
+        var hit = false
+        while movement[0] >= game.state.active_x + offset:
+            new_loc = test_location_custom(game.state.active_x + offset, movement[1], movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                offset.inc()
+            else:
+                game.state.active_x = game.state.active_x + offset - 1
+                hit = true
+                break
+        if not hit:
+            game.state.active_x = movement[0]
+        
+    of Action.hard_left:
+        var movement = get_new_location(move)
+        echo movement
+        var offset = 0
+        var new_loc: (Tensor[int], bool, bool)
+        var hit = false
+        while movement[0] <= game.state.active_x + offset:
+            new_loc = test_location_custom(game.state.active_x - offset, movement[1], movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                offset.inc()
+            else:
+                game.state.active_x = game.state.active_x - offset + 1
+                hit = true
+                break
+        if not hit:
+            game.state.active_x = movement[0]
 
     of Action.lock:
         var movement = get_new_location(move)
@@ -556,18 +590,23 @@ proc gameLoop =
     SetTargetFPS(60)
 
     const restart_on_death = true
-
+    var pressed: seq[int]
+    var done = false
     while game.state.game_active and not WindowShouldClose():
         # DrawFPS(10, 10)
         # Check for game over
 
+        # while not done:
+        # echo GetKeyPressed()
         fix_queue()
 
         var current = test_current_location()
         if not current[1] or current[2]:
             if restart_on_death:
+                # echo fmt"{game.state.active_x} {current[1]} {current[2]}"
                 newGame()
                 startGame()
+                fix_queue()
                 echo "COLLISION == DEATH -> RESTART"
             else:
                 game.state.game_active = false
@@ -589,7 +628,7 @@ proc gameLoop =
             var pressed = true
             if IsKeyPressed(KEY_J):
                 action = Action.left
-            elif IsKeyPressed(KEY_K):
+            elif IsKeyPressed(KEY_K) or IsKeyPressed(KEY_DOWN):
                 action = Action.down
             elif IsKeyPressed(KEY_L):
                 action = Action.right
@@ -599,7 +638,11 @@ proc gameLoop =
                 action = Action.clockwise
             elif IsKeyPressed(KEY_SPACE):
                 action = Action.hard_drop
-            elif IsKeyPressed(KEY_SEMICOLON):
+            elif IsKeyPressed(KEY_RIGHT):
+                action = Action.hard_right
+            elif IsKeyPressed(KEY_LEFT):
+                action = Action.hard_left
+            elif IsKeyPressed(KEY_SEMICOLON) or IsKeyPressed(KEY_UP):
                 action = Action.up
             elif IsKeyPressed(KEY_ENTER):
                 action = Action.lock
