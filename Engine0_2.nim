@@ -103,7 +103,7 @@ proc `/`(x: float, y: int): float =
 
 proc `in`(x: int, y: seq[Key_event]): bool =
     for a in y:
-        echo fmt"{KeyboardKey(x)}, {a.name}"
+        # echo fmt"{KeyboardKey(x)}, {a.name}"
         if KeyboardKey(x) == a.name:
             return true
     return false
@@ -620,29 +620,24 @@ proc gameLoop =
     var pressed: seq[Key_event]
     var done = false
     var key_buffer: int
+    var del_count: int
     while game.state.game_active and not WindowShouldClose():
         DrawFPS(10, 10)
         # Check for game over
 
+        del_count = 0
         for a in 0 ..< pressed.len():
-            echo fmt"1, pressed: {pressed}"
-            if not IsKeyDown(pressed[a].name):
-                echo fmt"2, current: {pressed[a]}, isdown: {IsKeyDown(pressed[a].name)}"
-                pressed.del(a)
+            if not IsKeyDown(pressed[a - del_count].name):
+                pressed.del(a - del_count)
+                del_count.inc()
         key_buffer = GetKeyPressed()
         while key_buffer != 0:
             if key_buffer >= 97 and key_buffer <= 122:
                 key_buffer = key_buffer - 32
-            echo fmt"3, {key_buffer} in buffer"
             if key_buffer notin pressed:
-                echo fmt"4, {key_buffer} not in {pressed}"
                 pressed.add(Key_event(name: KeyboardKey(key_buffer), start_time: GetTime()))
-                # echo fmt"{ord(KeyboardKey(key_buffer))}, {
             key_buffer = GetKeyPressed()
 
-        # while not done:
-        # echo GetKeyPressed()
-        # echo pressed
         fix_queue()
 
         var current = test_current_location()
@@ -668,59 +663,25 @@ proc gameLoop =
 
         EndDrawing()
 
-        # block key_detection:
-        #     if IsKeyPressed(KEY_J):
-        #         discard do_action(Action.left)
-        #     elif IsKeyPressed(KEY_K):
-        #         discard do_action(Action.hard_drop)
-        #     elif IsKeyPressed(KEY_DOWN) or IsKeyPressed(KEY_SEMICOLON):
-        #         discard do_action(Action.down)
-        #     elif IsKeyPressed(KEY_L):
-        #         discard do_action(Action.right)
-        #     elif IsKeyPressed(KEY_D):
-        #         discard do_action(Action.counter_clockwise)
-        #     elif IsKeyPressed(KEY_F):
-        #         discard do_action(Action.clockwise)
-        #     elif IsKeyPressed(KEY_SPACE):
-        #         discard do_action(Action.hard_drop)
-        #         discard do_action(Action.lock)
-        #     elif IsKeyPressed(KEY_RIGHT):
-        #         discard do_action(Action.hard_right)
-        #     elif IsKeyPressed(KEY_LEFT):
-        #         discard do_action(Action.hard_left)
-        #     elif IsKeyPressed(KEY_SEMICOLON) or IsKeyPressed(KEY_UP):
-        #         discard do_action(Action.up)
-        #     elif IsKeyPressed(KEY_ENTER):
-        #         discard do_action(Action.lock)
-        #     elif IsKeyPressed(KEY_A):
-        #         discard do_action(Action.hold)
-            
-        #     if IsKeyPressed(KEY_R):
-        #         newGame()
-        #         startGame()
-
         block key_movement:
-            var press = false
+            var press: bool
             for a in 0 .. pressed.high():
+                press = false
                 if not pressed[a].first_tap:
-                    echo fmt"5, first: {pressed[a].first_tap}"
                     pressed[a].first_tap = true
                     press = true
-                elif not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000 and pressed[a].name in settings.controls.dasable_keys:
-                    echo fmt"6, das, {GetTime() - pressed[a].start_time} > {settings.controls.das / 1000}"
+                elif not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000:
                     pressed[a].start_time = pressed[a].start_time - settings.controls.das / 1000
                     pressed[a].arr_active = true
                     press = true
-                elif pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.arr / 1000 and pressed[a].name in settings.controls.dasable_keys:
-                    echo "7, arr"
+                elif pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.arr / 1000:
                     pressed[a].start_time = pressed[a].start_time - settings.controls.arr / 1000
                     press = true
                 
-                if pressed[a].name == KEY_SPACE:
+                if pressed[a].name notin settings.controls.dasable_keys:
                     pressed[a].start_time = float.high
                 
                 if press:
-                    # echo fmt"press, of {ord(pressed[a].name)} vs {ord(KEY_L)}: {ord(pressed[a].name) == ord(KEY_L)}"
                     case pressed[a].name:
                     of KEY_J:
                         discard do_action(Action.left)
@@ -730,7 +691,6 @@ proc gameLoop =
                         discard do_action(Action.down)
                     of KEY_L:
                         discard do_action(Action.right)
-                        echo 6
                     of KEY_D:
                         discard do_action(Action.counter_clockwise)
                     of KEY_F:
