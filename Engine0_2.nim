@@ -76,6 +76,7 @@ type  # consider changing these to ref objects while testing
         das: float  # units should be ms/square
         arr: float
         sds: float  # soft drop speed
+        dasable_keys: seq[KeyboardKey]
         # keybinds: Table[]
     Settings = object
         visuals: Visual_settings
@@ -606,13 +607,14 @@ proc set_settings() =
     settings.visuals.window_width = 800
     # settings.controls.keybinds = {KEY_J: }.toTable()
     settings.controls.das = 100
-    settings.controls.arr = 50
+    settings.controls.arr = 0
+    settings.controls.dasable_keys = @[KEY_J, KEY_L]
 
 
 proc gameLoop =
     
     InitWindow(settings.visuals.window_width, settings.visuals.window_height, "Hydris")
-    SetTargetFPS(1)
+    SetTargetFPS(60)
 
     const restart_on_death = true
     var pressed: seq[Key_event]
@@ -623,16 +625,19 @@ proc gameLoop =
         # Check for game over
 
         for a in 0 ..< pressed.len():
-            echo 1
+            echo fmt"1, pressed: {pressed}"
             if not IsKeyDown(pressed[a].name):
-                echo fmt"{pressed[a]}, {IsKeyDown(ord(pressed[a].name))}, {type(pressed[a].name)}"
+                echo fmt"2, current: {pressed[a]}, isdown: {IsKeyDown(pressed[a].name)}"
                 pressed.del(a)
         key_buffer = GetKeyPressed()
         while key_buffer != 0:
-            echo 2, key_buffer notin pressed
+            if key_buffer >= 97 and key_buffer <= 122:
+                key_buffer = key_buffer - 32
+            echo fmt"3, {key_buffer} in buffer"
             if key_buffer notin pressed:
-                echo 3
+                echo fmt"4, {key_buffer} not in {pressed}"
                 pressed.add(Key_event(name: KeyboardKey(key_buffer), start_time: GetTime()))
+                # echo fmt"{ord(KeyboardKey(key_buffer))}, {
             key_buffer = GetKeyPressed()
 
         # while not done:
@@ -698,18 +703,24 @@ proc gameLoop =
             var press = false
             for a in 0 .. pressed.high():
                 if not pressed[a].first_tap:
-                    echo 4
+                    echo fmt"5, first: {pressed[a].first_tap}"
                     pressed[a].first_tap = true
                     press = true
-                elif not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000:
-                    echo 5
+                elif not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000 and pressed[a].name in settings.controls.dasable_keys:
+                    echo fmt"6, das, {GetTime() - pressed[a].start_time} > {settings.controls.das / 1000}"
                     pressed[a].start_time = pressed[a].start_time - settings.controls.das / 1000
+                    pressed[a].arr_active = true
                     press = true
-                elif GetTime() - pressed[a].start_time > settings.controls.arr / 1000:
+                elif pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.arr / 1000 and pressed[a].name in settings.controls.dasable_keys:
+                    echo "7, arr"
                     pressed[a].start_time = pressed[a].start_time - settings.controls.arr / 1000
                     press = true
                 
+                if pressed[a].name == KEY_SPACE:
+                    pressed[a].start_time = float.high
+                
                 if press:
+                    # echo fmt"press, of {ord(pressed[a].name)} vs {ord(KEY_L)}: {ord(pressed[a].name) == ord(KEY_L)}"
                     case pressed[a].name:
                     of KEY_J:
                         discard do_action(Action.left)
@@ -735,6 +746,12 @@ proc gameLoop =
                         discard do_action(Action.up)
                     of KEY_ENTER:
                         discard do_action(Action.lock)
+                    of KEY_A:
+                        discard do_action(Action.hold)
+                    of KEY_R:
+                        newGame()
+                        startGame()
+                        pressed = @[]
                     else:
                         continue 
 
