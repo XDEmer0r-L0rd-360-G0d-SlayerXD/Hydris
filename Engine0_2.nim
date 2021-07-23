@@ -64,7 +64,7 @@ type  # consider changing these to ref objects while testing
         state: State
         stats: Stats
     Action {.pure.} = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left
     Visual_settings = object
         game_field_offset_left: float
         game_field_offset_top: float
@@ -78,9 +78,12 @@ type  # consider changing these to ref objects while testing
         sds: float  # soft drop speed
         dasable_keys: seq[KeyboardKey]
         # keybinds: Table[]
+    Game_Play_settings = object
+        ghost: bool
     Settings = object
         visuals: Visual_settings
         controls: Control_settings
+        play: Game_Play_settings
     Key_event = object
         name: KeyboardKey
         start_time: float
@@ -370,12 +373,52 @@ proc get_new_location(a: Action): array[3, int] =
     of Action.clockwise:
         let new_r = (game.state.active_r + 1) mod 4
         return [game.state.active_x + game.state.active.rotation_shapes[new_r].pivot_x - game.state.active.rotation_shapes[game.state.active_r].pivot_x, game.state.active_y - game.state.active.rotation_shapes[new_r].pivot_y + game.state.active.rotation_shapes[game.state.active_r].pivot_y, new_r]
-    of Action.hard_drop:
+    of Action.max_down:
         return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
-    of Action.hard_right:
+    of Action.max_right:
         return [game.state.active.rotation_shapes[game.state.active_r].map_bounds[1], game.state.active_y, game.state.active_r]
-    of Action.hard_left:
+    of Action.max_left:
         return [game.state.active.rotation_shapes[game.state.active_r].map_bounds[3], game.state.active_y, game.state.active_r]
+    of Action.hard_drop:
+        var movement = get_new_location(Action.max_down)
+        var offset = 0
+        var new_loc: (Tensor[int], bool, bool)
+        var hit = false
+        while movement[1] <= game.state.active_y - offset:
+            new_loc = test_location_custom(movement[0], game.state.active_y - offset, movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                offset.inc()
+            else:
+                return [game.state.active_x, game.state.active_y - offset + 1, game.state.active_r]
+        return [game.state.active_x, movement[1], game.state.active_r]
+    of Action.hard_right:
+        var movement = get_new_location(Action.max_right)
+        var offset = 0
+        var new_loc: (Tensor[int], bool, bool)
+        var hit = false
+        while movement[0] >= game.state.active_x + offset:
+            new_loc = test_location_custom(game.state.active_x + offset, movement[1], movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                offset.inc()
+            else:
+                echo "colision"
+                return [game.state.active_x + offset - 1, game.state.active_y, game.state.active_r]
+        echo "wall"
+        return [movement[0], game.state.active_y, game.state.active_r]
+    of Action.hard_left:
+        var movement = get_new_location(Action.max_left)
+        echo movement
+        var offset = 0
+        var new_loc: (Tensor[int], bool, bool)
+        var hit = false
+        while movement[0] <= game.state.active_x + offset:
+            new_loc = test_location_custom(game.state.active_x - offset, movement[1], movement[2], game.state.active, game.board)
+            if new_loc[1] and not new_loc[2]:
+                offset.inc()
+            else:
+                return [game.state.active_x - offset + 1, game.state.active_y, game.state.active_r]
+        return [movement[0], game.state.active_y, game.state.active_r]
+
     else:
         return [game.state.active_x, game.state.active_y, game.state.active_r]  # this is a generic fallback
 
@@ -383,7 +426,7 @@ proc get_new_location(a: Action): array[3, int] =
 proc evaluate_board() =
     var remove: seq[int]
     for a in 0 ..< rules.height:
-        if sum(game.board[a, _]) == rules.width:
+        if product(game.board[a, _]) >= 1:
             remove.add(a)
             
     var temp = zeros_like(game.board)
@@ -420,12 +463,15 @@ proc startGame =
 proc do_action(move: Action): bool =
     
     case move:
-    of Action.up, Action.right, Action.down, Action.left:
+    of Action.up, Action.right, Action.down, Action.left, Action.hard_drop, Action.hard_left, Action.hard_right:
         # get new pos, test, change active cords
         var movement = get_new_location(move)
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
         if not new_loc[1] or new_loc[2]:
+            echo "this should never trigger"
+            echo new_loc[1], new_loc[2], movement
             return false
+        echo 1
         game.state.active_x = movement[0]
         game.state.active_y = movement[1]
         game.state.active_r = movement[2]
@@ -446,56 +492,6 @@ proc do_action(move: Action): bool =
                 game.state.active_r = movement[2]
                 return true
         return false
-
-
-    of Action.hard_drop:
-        var movement = get_new_location(move)
-        var offset = 0
-        var new_loc: (Tensor[int], bool, bool)
-        var hit = false
-        while movement[1] <= game.state.active_y - offset:
-            new_loc = test_location_custom(movement[0], game.state.active_y - offset, movement[2], game.state.active, game.board)
-            if new_loc[1] and not new_loc[2]:
-                offset.inc()
-            else:
-                game.state.active_y = game.state.active_y - offset + 1
-                hit = true
-                break
-        if not hit:
-            game.state.active_y = movement[1]
-        
-    of Action.hard_right:
-        var movement = get_new_location(move)
-        var offset = 0
-        var new_loc: (Tensor[int], bool, bool)
-        var hit = false
-        while movement[0] >= game.state.active_x + offset:
-            new_loc = test_location_custom(game.state.active_x + offset, movement[1], movement[2], game.state.active, game.board)
-            if new_loc[1] and not new_loc[2]:
-                offset.inc()
-            else:
-                game.state.active_x = game.state.active_x + offset - 1
-                hit = true
-                break
-        if not hit:
-            game.state.active_x = movement[0]
-        
-    of Action.hard_left:
-        var movement = get_new_location(move)
-        echo movement
-        var offset = 0
-        var new_loc: (Tensor[int], bool, bool)
-        var hit = false
-        while movement[0] <= game.state.active_x + offset:
-            new_loc = test_location_custom(game.state.active_x - offset, movement[1], movement[2], game.state.active, game.board)
-            if new_loc[1] and not new_loc[2]:
-                offset.inc()
-            else:
-                game.state.active_x = game.state.active_x - offset + 1
-                hit = true
-                break
-        if not hit:
-            game.state.active_x = movement[0]
 
     of Action.lock:
         var movement = get_new_location(move)
@@ -525,6 +521,10 @@ proc do_action(move: Action): bool =
         game.state.active_x = game.rules.spawn_x
         game.state.active_y = game.rules.spawn_y
         game.state.active_r = 0
+    
+    else:
+        echo "else hit"
+        return false
     
     return true
 
@@ -609,6 +609,7 @@ proc set_settings() =
     settings.controls.das = 100
     settings.controls.arr = 0
     settings.controls.dasable_keys = @[KEY_J, KEY_L]
+    settings.play.ghost = true
 
 
 proc gameLoop =
@@ -632,6 +633,7 @@ proc gameLoop =
                 del_count.inc()
         key_buffer = GetKeyPressed()
         while key_buffer != 0:
+            echo key_buffer
             if key_buffer >= 97 and key_buffer <= 122:
                 key_buffer = key_buffer - 32
             if key_buffer notin pressed:
@@ -666,6 +668,7 @@ proc gameLoop =
         block key_movement:
             var press: bool
             for a in 0 .. pressed.high():
+                echo "mult"
                 press = false
                 if not pressed[a].first_tap:
                     pressed[a].first_tap = true
@@ -690,6 +693,7 @@ proc gameLoop =
                     of KEY_DOWN:
                         discard do_action(Action.down)
                     of KEY_L:
+                        echo "left"
                         discard do_action(Action.right)
                     of KEY_D:
                         discard do_action(Action.counter_clockwise)
@@ -699,6 +703,7 @@ proc gameLoop =
                         discard do_action(Action.hard_drop)
                         discard do_action(Action.lock)
                     of KEY_RIGHT:
+                        echo "right"
                         discard do_action(Action.hard_right)
                     of KEY_LEFT:
                         discard do_action(Action.hard_left)
