@@ -65,7 +65,7 @@ type  # consider changing these to ref objects while testing
         stats: Stats
         settings: Settings
     Action = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty
     Move_type = enum
         single, continuous, das
     Visual_settings = object
@@ -384,6 +384,9 @@ proc get_new_location(a: Action): array[3, int] =
     of Action.clockwise:
         let new_r = (game.state.active_r + 1) mod 4
         return [game.state.active_x + game.state.active.rotation_shapes[new_r].pivot_x - game.state.active.rotation_shapes[game.state.active_r].pivot_x, game.state.active_y - game.state.active.rotation_shapes[new_r].pivot_y + game.state.active.rotation_shapes[game.state.active_r].pivot_y, new_r]
+    of Action.oneeighty:
+        let new_r = (game.state.active_r + 2) mod 4
+        return [game.state.active_x + game.state.active.rotation_shapes[new_r].pivot_x - game.state.active.rotation_shapes[game.state.active_r].pivot_x, game.state.active_y - game.state.active.rotation_shapes[new_r].pivot_y + game.state.active.rotation_shapes[game.state.active_r].pivot_y, new_r]
     of Action.max_down:
         return [game.state.active_x, game.state.active.rotation_shapes[game.state.active_r mod 4].map_bounds[2], game.state.active_r mod 4]
     of Action.max_right:
@@ -486,7 +489,7 @@ proc do_action(move: Action): bool =
         game.state.active_x = movement[0]
         game.state.active_y = movement[1]
         game.state.active_r = movement[2]
-    of Action.counter_clockwise, Action.clockwise:
+    of Action.counter_clockwise, Action.clockwise, Action.oneeighty:
         var movement = get_new_location(move)
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
         let kicks = game.state.active.kick_table[fmt"{game.state.active_r}>{movement[2]}"]
@@ -627,8 +630,9 @@ proc set_settings() =
     # only debug hard_left, hard_right, and lock left in
     settings.controls.keybinds = {KEY_J: Action.left, KEY_K: Action.down, KEY_L: Action.right, 
     KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_A: Action.hold, KEY_SPACE: Action.hard_drop,
-    KEY_RIGHT: Action.hard_right, KEY_LEFT: Action.hard_left, KEY_ENTER: Action.lock, KEY_R: Action.reset}.toTable()
-    settings.controls.das = 100
+    KEY_RIGHT: Action.hard_right, KEY_LEFT: Action.hard_left, KEY_ENTER: Action.lock, KEY_R: Action.reset,
+    KEY_S: Action.oneeighty}.toTable()
+    settings.controls.das = 70
     settings.controls.arr = 0
     settings.controls.dasable_keys = @[KEY_J, KEY_L]
     settings.play.ghost = true
@@ -665,7 +669,7 @@ proc gameLoop =
                     new_key.movement = Move_type.das
                 of Action.down:
                     new_key.movement = Move_type.continuous
-                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise:
+                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty:
                     new_key.movement = Move_type.single
                 else:
                     new_key.movement = Move_type.single
@@ -727,6 +731,8 @@ proc gameLoop =
                         discard do_action(Action.counter_clockwise)
                     of Action.clockwise:
                         discard do_action(Action.clockwise)
+                    of Action.oneeighty:
+                        discard do_action(Action.oneeighty)
                     of Action.hard_drop:
                         discard do_action(Action.hard_drop)
                         discard do_action(Action.lock)
@@ -742,9 +748,9 @@ proc gameLoop =
                         newGame()
                         startGame()
                         pressed = @[]
-                        os.sleep(300)  # todo make this a setting
+                        # os.sleep(300)  # todo make this a setting
                     else:
-                        continue 
+                        echo fmt"missed {press}"
 
 
     
