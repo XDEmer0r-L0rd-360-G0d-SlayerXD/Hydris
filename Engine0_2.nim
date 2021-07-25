@@ -119,6 +119,12 @@ proc `in`(x: KeyboardKey, y: seq[Key_event]): bool =
 proc `notin`(x: KeyboardKey, y: seq[Key_event]): bool =
     return not (x in y)
 
+# I may need this later depending on how I choose to represent board colors later
+proc has_val_to_one(x: int): int =
+    if x == 0:
+        return 0
+    return 1
+
 
 # Main
 
@@ -561,6 +567,12 @@ proc draw_game() =
     proc draw_square(x: int, y: int, col: Color) =
         # This assumes drawing in the game field with a finness of the min size
             DrawRectangle(x * (size + grid_lines) + x_offset, y * (size + grid_lines) + y_offset, size, size, col)
+
+    var ghost_board: Tensor[int]
+    if settings.play.ghost:
+        let movement = get_new_location(Action.hard_drop)
+        let new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
+        ghost_board = new_loc[0] - game.board
         
 
     # Draw the game board
@@ -572,6 +584,8 @@ proc draw_game() =
             val = loc[a, b]
             if val == 1:
                 col = makecolor(200, 0, 0)
+            elif settings.play.ghost and ghost_board[a, b] == 1:
+                col = makecolor(100, 0, 0)
             else:
                 col = makecolor(50, 50, 50)
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
