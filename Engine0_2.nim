@@ -1,5 +1,5 @@
 {.experimental: "codeReordering".}
-import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random
+import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random, os
 import raylib, rayutils
 # import math, random
 
@@ -63,8 +63,11 @@ type  # consider changing these to ref objects while testing
         board: Tensor[int]
         state: State
         stats: Stats
-    Action {.pure.} = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left
+        settings: Settings
+    Action = enum
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset
+    Move_type = enum
+        single, continuous, das
     Visual_settings = object
         game_field_offset_left: float
         game_field_offset_top: float
@@ -77,7 +80,7 @@ type  # consider changing these to ref objects while testing
         arr: float
         sds: float  # soft drop speed
         dasable_keys: seq[KeyboardKey]
-        # keybinds: Table[]
+        keybinds: Table[KeyboardKey, Action]
     Game_Play_settings = object
         ghost: bool
     Settings = object
@@ -89,11 +92,13 @@ type  # consider changing these to ref objects while testing
         start_time: float
         arr_active: bool
         first_tap: bool
+        movement: Move_type
+        action: Action
         
 
 var game*: Game
 var rules* = addr(game.rules)
-var settings*: Settings
+var settings* = addr(game.settings)
 
 
 # Helpers
@@ -104,14 +109,14 @@ proc `*`(x: float, y: int): float =
 proc `/`(x: float, y: int): float =
     return x / toFloat(y)
 
-proc `in`(x: int, y: seq[Key_event]): bool =
+proc `in`(x: KeyboardKey, y: seq[Key_event]): bool =
     for a in y:
         # echo fmt"{KeyboardKey(x)}, {a.name}"
         if KeyboardKey(x) == a.name:
             return true
     return false
 
-proc `notin`(x: int, y: seq[Key_event]): bool =
+proc `notin`(x: KeyboardKey, y: seq[Key_event]): bool =
     return not (x in y)
 
 
@@ -605,7 +610,10 @@ proc set_settings() =
     settings.visuals.game_field_board_padding_left = 5
     settings.visuals.window_height = 900
     settings.visuals.window_width = 800
-    # settings.controls.keybinds = {KEY_J: }.toTable()
+    # only debug hard_left, hard_right, and lock left in
+    settings.controls.keybinds = {KEY_J: Action.left, KEY_K: Action.down, KEY_L: Action.right, 
+    KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_A: Action.hold, KEY_SPACE: Action.hard_drop,
+    KEY_RIGHT: Action.hard_right, KEY_LEFT: Action.hard_left, KEY_ENTER: Action.lock, KEY_R: Action.reset}.toTable()
     settings.controls.das = 100
     settings.controls.arr = 0
     settings.controls.dasable_keys = @[KEY_J, KEY_L]
@@ -615,30 +623,41 @@ proc set_settings() =
 proc gameLoop =
     
     InitWindow(settings.visuals.window_width, settings.visuals.window_height, "Hydris")
-    SetTargetFPS(60)
+    SetTargetFPS(0)
 
     const restart_on_death = true
     var pressed: seq[Key_event]
     var done = false
     var key_buffer: int
     var del_count: int
+    var new_key: Key_event
     while game.state.game_active and not WindowShouldClose():
         DrawFPS(10, 10)
         # Check for game over
 
+        # remove released keys
         del_count = 0
         for a in 0 ..< pressed.len():
             if not IsKeyDown(pressed[a - del_count].name):
                 pressed.del(a - del_count)
                 del_count.inc()
-        key_buffer = GetKeyPressed()
-        while key_buffer != 0:
-            echo key_buffer
-            if key_buffer >= 97 and key_buffer <= 122:
-                key_buffer = key_buffer - 32
-            if key_buffer notin pressed:
-                pressed.add(Key_event(name: KeyboardKey(key_buffer), start_time: GetTime()))
-            key_buffer = GetKeyPressed()
+                
+        # add newly pressed keys
+        for key in settings.controls.keybinds.keys():
+            if IsKeyDown(key) and (key notin pressed):
+                new_key = Key_event(name: key, start_time: GetTime(), action: settings.controls.keybinds[key])
+                case settings.controls.keybinds[key]:
+                of Action.right, Action.left:
+                    new_key.movement = Move_type.das
+                of Action.down:
+                    new_key.movement = Move_type.continuous
+                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise:
+                    new_key.movement = Move_type.single
+                else:
+                    new_key.movement = Move_type.single
+                    echo fmt"{key} not set"
+                pressed.add(new_key)
+
 
         fix_queue()
 
@@ -668,55 +687,48 @@ proc gameLoop =
         block key_movement:
             var press: bool
             for a in 0 .. pressed.high():
-                echo "mult"
                 press = false
-                if not pressed[a].first_tap:
+                if not pressed[a].first_tap:  # first tap
                     pressed[a].first_tap = true
                     press = true
-                elif not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000:
-                    pressed[a].start_time = pressed[a].start_time - settings.controls.das / 1000
+                elif pressed[a].movement == Move_type.das and not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000:  # das done
+                    pressed[a].start_time = pressed[a].start_time - settings.controls.das / 1000  # todo consider moving these to down to when I actually press things
                     pressed[a].arr_active = true
                     press = true
-                elif pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.arr / 1000:
+                elif pressed[a].movement == Move_type.das and pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.arr / 1000:  # arr done
                     pressed[a].start_time = pressed[a].start_time - settings.controls.arr / 1000
                     press = true
-                
-                if pressed[a].name notin settings.controls.dasable_keys:
-                    pressed[a].start_time = float.high
+                elif pressed[a].movement == Move_type.continuous:
+                    press = true
                 
                 if press:
-                    case pressed[a].name:
-                    of KEY_J:
+                    case pressed[a].action:  # what we call it to how we implement
+                    of Action.left:
                         discard do_action(Action.left)
-                    of KEY_K:
+                    of Action.down:
                         discard do_action(Action.hard_drop)
-                    of KEY_DOWN:
-                        discard do_action(Action.down)
-                    of KEY_L:
-                        echo "left"
+                    of Action.right:
                         discard do_action(Action.right)
-                    of KEY_D:
+                    of Action.counter_clockwise:
                         discard do_action(Action.counter_clockwise)
-                    of KEY_F:
+                    of Action.clockwise:
                         discard do_action(Action.clockwise)
-                    of KEY_SPACE:
+                    of Action.hard_drop:
                         discard do_action(Action.hard_drop)
                         discard do_action(Action.lock)
-                    of KEY_RIGHT:
-                        echo "right"
+                    of Action.hard_right:
                         discard do_action(Action.hard_right)
-                    of KEY_LEFT:
+                    of Action.hard_left:
                         discard do_action(Action.hard_left)
-                    of KEY_UP, KEY_SEMICOLON:
-                        discard do_action(Action.up)
-                    of KEY_ENTER:
+                    of Action.lock:
                         discard do_action(Action.lock)
-                    of KEY_A:
+                    of Action.hold:
                         discard do_action(Action.hold)
-                    of KEY_R:
+                    of Action.reset:
                         newGame()
                         startGame()
                         pressed = @[]
+                        os.sleep(300)  # todo make this a setting
                     else:
                         continue 
 
