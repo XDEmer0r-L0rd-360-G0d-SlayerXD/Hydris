@@ -1,5 +1,5 @@
 {.experimental: "codeReordering".}
-import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random, os
+import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random
 import raylib, rayutils
 # import math, random
 
@@ -482,10 +482,8 @@ proc do_action(move: Action): bool =
         var movement = get_new_location(move)
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
         if not new_loc[1] or new_loc[2]:
-            echo "this should never trigger"
-            echo new_loc[1], new_loc[2], movement
+            # this should only trigger via left and right because they don't check for bounds in their calcs
             return false
-        echo 1
         game.state.active_x = movement[0]
         game.state.active_y = movement[1]
         game.state.active_r = movement[2]
@@ -669,7 +667,7 @@ proc gameLoop =
                     new_key.movement = Move_type.das
                 of Action.down:
                     new_key.movement = Move_type.continuous
-                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty:
+                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold:
                     new_key.movement = Move_type.single
                 else:
                     new_key.movement = Move_type.single
@@ -747,7 +745,12 @@ proc gameLoop =
                     of Action.reset:
                         newGame()
                         startGame()
-                        pressed = @[]
+                        var reset_key: KeyboardKey
+                        for k, v in settings.controls.keybinds:
+                            if v == Action.reset:
+                                reset_key = k
+                        if settings.controls.keybinds[reset_key] == Action.reset:
+                            pressed = @[Key_event(name: reset_key, start_time: GetTime(), action: settings.controls.keybinds[reset_key], movement: Move_type.single, first_tap: true)]
                         # os.sleep(300)  # todo make this a setting
                     else:
                         echo fmt"missed {press}"
