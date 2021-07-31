@@ -1,6 +1,6 @@
 {.experimental: "codeReordering".}
-import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random
-import raylib, rayutils
+import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random, std/monotimes, times
+# import raylib, rayutils
 # import math, random
 
 # cordinates always start from the top left excep for the board which is the only thing that starts at the bottom left
@@ -8,7 +8,7 @@ import raylib, rayutils
 type  # consider changing these to ref objects while testing
     Mino_rotation = object
         rotation_id: int
-        shape: Tensor[int]
+        shape*: Tensor[int]
         pivot_x: int
         pivot_y: int
         removed_top: int
@@ -19,16 +19,16 @@ type  # consider changing these to ref objects while testing
         cleaned_width: int
         cleaned_height: int
         map_bounds: array[4, int]  # starts north and then goes clockwise
-    Mino = object
+    Mino* = object
         name: string
-        rotation_shapes: seq[Mino_rotation]
+        rotation_shapes*: seq[Mino_rotation]
         kick_table: Table[string, seq[(int, int)]]
         pattern: int  # basically enum stuff to choose color
-    Rules = object
+    Rules = object  # todo look into making all of these exportable
         name: string
-        width: int
+        width*: int
         visible_height: int
-        height: int  # its implied that anything placed fully above height will kill
+        height*: int  # its implied that anything placed fully above height will kill
         place_delay: float
         clear_delay: float
         spawn_x: int
@@ -40,84 +40,85 @@ type  # consider changing these to ref objects while testing
         bag_type: string
         bag_minos: seq[Mino]
         kick_table: string
-        visible_queue_len: int
+        visible_queue_len*: int
         gravity_speed: int
+    Key_event = object
+        start_time: MonoTime
+        arr_active: bool
+        first_tap: bool
+        movement: Move_type
+        action: Action
     State = object
-        game_active: bool
-        active: Mino  # maybe make this ref? 
-        active_x: int
-        active_y: int
-        active_r: int
-        hold: string
-        hold_available: bool
-        queue: string
-        current_combo: int
+        game_active*: bool
+        active*: Mino  # maybe make this ref? 
+        active_x*: int
+        active_y*: int
+        active_r*: int
+        hold*: string
+        hold_available*: bool
+        queue*: string
+        current_combo*: int
+        movements*: seq[Key_event]
     Stats = object
         time: float
         lines_cleared: int
         pieces_placed: int
         score: int
         lines_sent: int
-    Game = object
-        rules: Rules
-        board: Tensor[int]
-        state: State
-        stats: Stats
-        settings: Settings
-    Action = enum
+    Game* = object
+        rules*: Rules
+        board*: Tensor[int]
+        state*: State
+        stats*: Stats
+        settings*: Settings
+    Action* = enum
         lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty
     Move_type = enum
         single, continuous, das
-    Visual_settings = object
-        game_field_offset_left: float
-        game_field_offset_top: float
-        game_field_units_wide: int
-        game_field_board_padding_left: int
-        window_height: int
-        window_width: int
     Control_settings = object
         das: float  # units should be ms/square
         arr: float
         sds: float  # soft drop speed
-        dasable_keys: seq[KeyboardKey]
-        keybinds: Table[KeyboardKey, Action]
     Game_Play_settings = object
-        ghost: bool
-    Settings = object
-        visuals: Visual_settings
+        ghost*: bool
+    Settings* = object
         controls: Control_settings
-        play: Game_Play_settings
-    Key_event = object
-        name: KeyboardKey
-        start_time: float
-        arr_active: bool
-        first_tap: bool
-        movement: Move_type
-        action: Action
+        play*: Game_Play_settings
         
 
 var game*: Game
 var rules* = addr(game.rules)
-var settings* = addr(game.settings)
+var settings* = addr(game.settings)  # todo consider moving settings into rules
 
 
 # Helpers
 
-proc `*`(x: float, y: int): float =
+proc `*`*(x: float, y: int): float =
     return x * toFloat(y)
 
-proc `/`(x: float, y: int): float =
+proc `/`*(x: float, y: int): float =
     return x / toFloat(y)
 
-proc `in`(x: KeyboardKey, y: seq[Key_event]): bool =
+proc `in`(x: Action, y: seq[Key_event]): bool =
     for a in y:
-        # echo fmt"{KeyboardKey(x)}, {a.name}"
-        if KeyboardKey(x) == a.name:
+        if x == a.action:
             return true
     return false
 
-proc `notin`(x: KeyboardKey, y: seq[Key_event]): bool =
+proc `notin`(x: Action, y: seq[Key_event]): bool =
     return not (x in y)
+
+proc `in`(x: Key_event, y: seq[Action]): bool =
+    for a in y:
+        if a == x.action:
+            return true
+    return false
+
+proc `notin`(x: Key_event, y: seq[Action]): bool =
+    return not (x in y)
+
+# proc `<`(x: float, y: Duration): bool =
+#     return initDuration(0, int64(x)) < y
 
 # I may need this later depending on how I choose to represent board colors later
 proc has_val_to_one(x: int): int =
@@ -262,7 +263,7 @@ proc createMinos =
         rules.bag_minos.add(piece_data)
 
 
-proc get_mino(name: string): Mino =
+proc get_mino*(name: string): Mino =
     for a in rules.bag_minos:
         if a.name == name:
             return a
@@ -272,37 +273,37 @@ proc get_mino(name: string): Mino =
 # Use a names such as tetrio to preset rules object to have desired settings
 proc setRules(name: string) = 
     case name:
-        of "TETRIO":
-            game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
-            clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
-            bag_piece_names: "JLSZIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
-            )
-        of "MAIN":
-            game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
-            clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
-            bag_piece_names: "JLZSIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
-            )
-        of "MINI TESTING":
-            game.rules = Rules(name: name, width: 6, visible_height: 6, height: 10, place_delay: 0.0, 
-            clear_delay: 0.0, spawn_x: 2, spawn_y: 8, allow_clutch_clear: false, softdrop_duration: 0, 
-            bag_piece_names: "JLZSIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
-            )
-        of "WACKY":
-            game.rules = Rules(name: name, width: 8, visible_height: 5, height: 5, place_delay: 0.0, 
-            clear_delay: 0.0, spawn_x: 2, spawn_y: 3, allow_clutch_clear: false, softdrop_duration: 0, 
-            bag_piece_names: "TTT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
-            )
-        else:
-            var e: ref ValueError
-            new(e)
-            e.msg = "name name doesn't exist"
-            raise e
+    of "TETRIO":
+        game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
+        clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
+        bag_piece_names: "JLSZIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
+        )
+    of "MAIN":
+        game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
+        clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
+        bag_piece_names: "JLZSIOT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+        )
+    of "MINI TESTING":
+        game.rules = Rules(name: name, width: 6, visible_height: 6, height: 10, place_delay: 0.0, 
+        clear_delay: 0.0, spawn_x: 2, spawn_y: 8, allow_clutch_clear: false, softdrop_duration: 0, 
+        bag_piece_names: "JLZSIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+        )
+    of "WACKY":
+        game.rules = Rules(name: name, width: 8, visible_height: 5, height: 5, place_delay: 0.0, 
+        clear_delay: 0.0, spawn_x: 2, spawn_y: 3, allow_clutch_clear: false, softdrop_duration: 0, 
+        bag_piece_names: "TTT", bag_type: "random", kick_table: "SRS+", can_hold: true, visible_queue_len: 10, gravity_speed: 0
+        )
+    else:
+        var e: ref ValueError
+        new(e)
+        e.msg = "name name doesn't exist"
+        raise e
 
     createMinos()
 
 
 # todo fix this to also show where the active piece is located
-proc print_game =
+proc print_game* =
     var temp = test_current_location()
     for a in 0 ..< rules.height:
         var line: seq[int]
@@ -313,7 +314,7 @@ proc print_game =
 
 
 # A test that can happen without messing with game state
-proc test_location_custom(x: int, y: int, r_val: int, m: Mino, t: Tensor[int]): (Tensor[int], bool, bool) =  # (out map, possible location, requires colisions)
+proc test_location_custom*(x: int, y: int, r_val: int, m: Mino, t: Tensor[int]): (Tensor[int], bool, bool) =  # (out map, possible location, requires colisions)
     let r = r_val mod 4
     if x < m.rotation_shapes[r].map_bounds[3] or x > m.rotation_shapes[r].map_bounds[1] or y > m.rotation_shapes[r].map_bounds[0] or y < m.rotation_shapes[r].map_bounds[2]:
         return (t, false, false)
@@ -335,7 +336,7 @@ proc test_location_custom(x: int, y: int, r_val: int, m: Mino, t: Tensor[int]): 
 
 
 # Test current location
-proc test_current_location(): (Tensor[int], bool, bool) =
+proc test_current_location*(): (Tensor[int], bool, bool) =
     return test_location_custom(game.state.active_x, game.state.active_y, game.state.active_r, game.state.active, game.board)
 
 
@@ -365,7 +366,7 @@ proc get_user_action(): Action =
 
 
 # Interprates the Action enum
-proc get_new_location(a: Action): array[3, int] =
+proc get_new_location*(a: Action): array[3, int] =
     
     case a:
     of Action.lock:
@@ -421,7 +422,6 @@ proc get_new_location(a: Action): array[3, int] =
         return [movement[0], game.state.active_y, game.state.active_r]
     of Action.hard_left:
         var movement = get_new_location(Action.max_left)
-        echo movement
         var offset = 0
         var new_loc: (Tensor[int], bool, bool)
         var hit = false
@@ -454,7 +454,7 @@ proc evaluate_board() =
     game.board = temp
 
 
-proc newGame =
+proc newGame* =
     var game_type = "TETRIO"
     setRules(game_type)
     game.board = zeros[int]([rules.height, rules.width])
@@ -463,7 +463,7 @@ proc newGame =
     
 
 # prepare the initial state
-proc startGame =
+proc startGame* =
     game.state.game_active = true
     game.state.active.name = "-"
     game.state.active_x = rules.spawn_x
@@ -472,6 +472,13 @@ proc startGame =
     game.state.hold = "-"
     game.state.queue = ""  # todo use random
     game.state.current_combo = 0
+
+
+proc set_settings* =  # add proc to do all default setup by itself
+    settings.controls.das = 70
+    settings.controls.arr = 0
+    settings.controls.sds = 0
+    settings.play.ghost = true
 
 
 proc do_action(move: Action): bool =
@@ -541,7 +548,7 @@ proc do_action(move: Action): bool =
     return true
 
 
-proc fix_queue() =
+proc fix_queue*() =
     
     case rules.bag_type:
     of "random":
@@ -552,218 +559,98 @@ proc fix_queue() =
         while len(game.state.queue) < rules.visible_queue_len + 7:
             temp.shuffle()
             game.state.queue = game.state.queue & temp
+    else:
+        raiseError("No bag type found")
     if game.state.active.name == "-":
         game.state.active = get_mino($game.state.queue[0])
         game.state.queue = game.state.queue[1 .. game.state.queue.high]
 
 
-proc draw_game() =
-    # We assume were in drawing mode
-    let v = settings.visuals
-    let size = toInt((1 - v.game_field_offset_left * 2) * v.window_width / v.game_field_units_wide)
-    let x_offset = toInt(v.game_field_offset_left * v.window_width)
-    let y_offset = toInt(v.game_field_offset_top * v.window_height)
-    let grid_lines = 1
+proc frame_step*(actions: seq[Action]) =
     
-    proc draw_square(x: int, y: int, col: Color) =
-        # This assumes drawing in the game field with a finness of the min size
-            DrawRectangle(x * (size + grid_lines) + x_offset, y * (size + grid_lines) + y_offset, size, size, col)
+    fix_queue()
+    evaluate_board()
+    
 
-    var ghost_board: Tensor[int]
-    if settings.play.ghost:
-        let movement = get_new_location(Action.hard_drop)
-        let new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
-        ghost_board = new_loc[0] - game.board
-        
-
-    # Draw the game board
-    let loc = test_current_location()[0]
-    var val: int
-    var col: Color
-    for a in 0 ..< rules.height:
-        for b in 0 ..< rules.width:
-            val = loc[a, b]
-            if val == 1:
-                col = makecolor(200, 0, 0)
-            elif settings.play.ghost and ghost_board[a, b] == 1:
-                col = makecolor(100, 0, 0)
+    # remove released keys
+    var del_count = 0
+    for a in 0 .. game.state.movements.high():
+        if game.state.movements[a] notin actions:
+            game.state.movements.del(a - del_count)
+            del_count.inc()
+            
+    # add newly pressed keys
+    for act in actions:
+        if act notin game.state.movements:
+            var new_key = Key_event(start_time: getMonoTime(), action: act)
+            case act:
+            of Action.right, Action.left:
+                new_key.movement = Move_type.das
+            of Action.down:
+                new_key.movement = Move_type.continuous
+            of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold:
+                new_key.movement = Move_type.single
             else:
-                col = makecolor(50, 50, 50)
-            # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
-            draw_square(b + v.game_field_board_padding_left, a, col)
+                new_key.movement = Move_type.single
+                echo fmt"{act} not set"
+            game.state.movements.add(new_key)
 
-    # Draw the queue
-    var off_y = 0
-    var mino: Mino
-    for a in 0 ..< rules.visible_queue_len:
-        mino = get_mino($game.state.queue[a])
-        for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
-            for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
-                if mino.rotation_shapes[0].shape[y, x] == 1:
-                    col = makecolor(200, 0, 0)
-                else:
-                    col = makecolor(50, 50, 50)
-                draw_square(settings.visuals.game_field_board_padding_left + rules.width + 1 + x, a * 5 + y, col)
-    
-    if game.state.hold != "-":
-        mino = get_mino(game.state.hold)
-        for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
-            for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
-                if mino.rotation_shapes[0].shape[y, x] == 1:
-                    col = makecolor(200, 0, 0)
-                else:
-                    col = makecolor(50, 50, 50)
-                draw_square(x, y, col)
+    # trigger actions that need to
+    var press: bool
+    var pressed: seq[Key_event] = addr(game.state.movements)[]
+    for a in 0 ..< pressed.len():
         
 
-
-proc set_settings() =
-    # Todo check for file later. I'll just use defaults for now.
-    settings.visuals.game_field_offset_left = 0.1
-    settings.visuals.game_field_offset_top = 0.1
-    settings.visuals.game_field_units_wide = 10 + rules.width  # todo change the order of calling settings and game to allow loading later
-    settings.visuals.game_field_board_padding_left = 5
-    settings.visuals.window_height = 900
-    settings.visuals.window_width = 800
-    # only debug hard_left, hard_right, and lock left in
-    settings.controls.keybinds = {KEY_J: Action.left, KEY_K: Action.down, KEY_L: Action.right, 
-    KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_A: Action.hold, KEY_SPACE: Action.hard_drop,
-    KEY_RIGHT: Action.hard_right, KEY_LEFT: Action.hard_left, KEY_ENTER: Action.lock, KEY_R: Action.reset,
-    KEY_S: Action.oneeighty}.toTable()
-    settings.controls.das = 70
-    settings.controls.arr = 0
-    settings.controls.dasable_keys = @[KEY_J, KEY_L]
-    settings.play.ghost = true
-
-
-proc gameLoop =
-    
-    InitWindow(settings.visuals.window_width, settings.visuals.window_height, "Hydris")
-    SetTargetFPS(0)
-
-    const restart_on_death = true
-    var pressed: seq[Key_event]
-    var done = false
-    var key_buffer: int
-    var del_count: int
-    var new_key: Key_event
-    while game.state.game_active and not WindowShouldClose():
-        DrawFPS(10, 10)
-        # Check for game over
-
-        # remove released keys
-        del_count = 0
-        for a in 0 ..< pressed.len():
-            if not IsKeyDown(pressed[a - del_count].name):
-                pressed.del(a - del_count)
-                del_count.inc()
-                
-        # add newly pressed keys
-        for key in settings.controls.keybinds.keys():
-            if IsKeyDown(key) and (key notin pressed):
-                new_key = Key_event(name: key, start_time: GetTime(), action: settings.controls.keybinds[key])
-                case settings.controls.keybinds[key]:
-                of Action.right, Action.left:
-                    new_key.movement = Move_type.das
-                of Action.down:
-                    new_key.movement = Move_type.continuous
-                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold:
-                    new_key.movement = Move_type.single
-                else:
-                    new_key.movement = Move_type.single
-                    echo fmt"{key} not set"
-                pressed.add(new_key)
-
-
-        fix_queue()
-
-        var current = test_current_location()
-        if not current[1] or current[2]:
-            if restart_on_death:
-                # echo fmt"{game.state.active_x} {current[1]} {current[2]}"
+        press = false
+        if not pressed[a].first_tap:  # first tap
+            pressed[a].first_tap = true
+            press = true
+        elif pressed[a].movement == Move_type.das and not pressed[a].arr_active and getMonoTime() - pressed[a].start_time > initDuration(milliseconds = toInt(settings.controls.das)):  # das done
+            pressed[a].start_time = pressed[a].start_time - initDuration(milliseconds = toInt(settings.controls.das))  # todo consider moving these to down to when I actually press things. Also these are prob + not -
+            pressed[a].arr_active = true
+            press = true
+        elif pressed[a].movement == Move_type.das and pressed[a].arr_active and getMonoTime() - pressed[a].start_time > initDuration(milliseconds = toInt(settings.controls.arr)):  # arr done
+            pressed[a].start_time = pressed[a].start_time - initDuration(milliseconds = toInt(settings.controls.das))
+            press = true
+        elif pressed[a].movement == Move_type.continuous:
+            press = true
+        
+        if press:
+            case pressed[a].action:  # what we call it converted to how we implement
+            of Action.left:
+                discard do_action(Action.left)
+            of Action.down:
+                discard do_action(Action.hard_drop)
+            of Action.right:
+                discard do_action(Action.right)
+            of Action.counter_clockwise:
+                discard do_action(Action.counter_clockwise)
+            of Action.clockwise:
+                discard do_action(Action.clockwise)
+            of Action.oneeighty:
+                discard do_action(Action.oneeighty)
+            of Action.hard_drop:
+                discard do_action(Action.hard_drop)
+                discard do_action(Action.lock)
+            of Action.hard_right:
+                discard do_action(Action.hard_right)
+            of Action.hard_left:
+                discard do_action(Action.hard_left)
+            of Action.lock:
+                discard do_action(Action.lock)
+            of Action.hold:
+                discard do_action(Action.hold)
+            of Action.reset:
                 newGame()
                 startGame()
-                fix_queue()
-                echo "COLLISION == DEATH -> RESTART"
+                pressed = @[Key_event(start_time: getMonoTime(), action: Action.reset, movement: Move_type.single, first_tap: true)]
+                # os.sleep(300)  # todo make this a setting
             else:
-                game.state.game_active = false
-                continue
-            
-        # print_game()
-
-        evaluate_board()
-
-        ClearBackground(makecolor(0, 0, 30))
-        BeginDrawing()
-        
-        draw_game()
-
-        EndDrawing()
-
-        block key_movement:
-            var press: bool
-            for a in 0 .. pressed.high():
-                press = false
-                if not pressed[a].first_tap:  # first tap
-                    pressed[a].first_tap = true
-                    press = true
-                elif pressed[a].movement == Move_type.das and not pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.das / 1000:  # das done
-                    pressed[a].start_time = pressed[a].start_time - settings.controls.das / 1000  # todo consider moving these to down to when I actually press things
-                    pressed[a].arr_active = true
-                    press = true
-                elif pressed[a].movement == Move_type.das and pressed[a].arr_active and GetTime() - pressed[a].start_time > settings.controls.arr / 1000:  # arr done
-                    pressed[a].start_time = pressed[a].start_time - settings.controls.arr / 1000
-                    press = true
-                elif pressed[a].movement == Move_type.continuous:
-                    press = true
-                
-                if press:
-                    case pressed[a].action:  # what we call it to how we implement
-                    of Action.left:
-                        discard do_action(Action.left)
-                    of Action.down:
-                        discard do_action(Action.hard_drop)
-                    of Action.right:
-                        discard do_action(Action.right)
-                    of Action.counter_clockwise:
-                        discard do_action(Action.counter_clockwise)
-                    of Action.clockwise:
-                        discard do_action(Action.clockwise)
-                    of Action.oneeighty:
-                        discard do_action(Action.oneeighty)
-                    of Action.hard_drop:
-                        discard do_action(Action.hard_drop)
-                        discard do_action(Action.lock)
-                    of Action.hard_right:
-                        discard do_action(Action.hard_right)
-                    of Action.hard_left:
-                        discard do_action(Action.hard_left)
-                    of Action.lock:
-                        discard do_action(Action.lock)
-                    of Action.hold:
-                        discard do_action(Action.hold)
-                    of Action.reset:
-                        newGame()
-                        startGame()
-                        var reset_key: KeyboardKey
-                        for k, v in settings.controls.keybinds:
-                            if v == Action.reset:
-                                reset_key = k
-                        if settings.controls.keybinds[reset_key] == Action.reset:
-                            pressed = @[Key_event(name: reset_key, start_time: GetTime(), action: settings.controls.keybinds[reset_key], movement: Move_type.single, first_tap: true)]
-                        # os.sleep(300)  # todo make this a setting
-                    else:
-                        echo fmt"missed {press}"
+                echo fmt"missed {press}"
 
 
-    
-    CloseWindow()
 
 
-newGame()
-set_settings()
-startGame()
-gameLoop()
 # # print_game()
 # # game.board[2, 3] = 1
 # # echo test_location_custom(1, 3, 3, rules.bag_minos[6], game.board)
