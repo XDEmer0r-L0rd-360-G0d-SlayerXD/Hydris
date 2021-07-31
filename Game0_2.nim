@@ -1,5 +1,5 @@
 import Engine0_2
-import tables, arraymancer, strformat
+import tables, arraymancer, strformat, strutils, std.monotimes
 import raylib, rayutils
 
 type
@@ -101,7 +101,7 @@ proc draw_game() =
 proc gameLoop* =
     
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
-    SetTargetFPS(0)
+    SetTargetFPS(60)
     
     frame_step(@[])
     while (game.state.game_active or ui.play.restart_on_death) and not WindowShouldClose():
@@ -111,7 +111,8 @@ proc gameLoop* =
             newGame()
             startGame()
             fix_queue()
-            echo "COLLISION == DEATH -> RESTART"
+            invalidate_all_actions()
+            echo "RESTARTING"
             
         var pressed: seq[Action]
         # get keybinds
@@ -130,6 +131,19 @@ proc gameLoop* =
         draw_game()
 
         EndDrawing()
+
+        # lines cleared
+        var count = 0
+        for a in game.state.event_log:
+            case a[1]:
+            of "1", "2", "3", "4":
+                count.inc(parseInt(a[1]))
+        DrawText(fmt"{count}/40", 30, 500, 30, WHITE)
+
+        if count >= 40:
+            var time = game.state.event_log[^1][0] - game.state.event_log[0][0]
+            echo fmt"Done in {time}s"
+            game.state.game_active = false
 
     
     CloseWindow()

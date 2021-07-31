@@ -59,6 +59,7 @@ type  # consider changing these to ref objects while testing
         queue*: string
         current_chain*: int
         movements*: seq[Key_event]
+        event_log*: seq[(MonoTime, string)]
     Stats = object
         time: float
         lines_cleared: int
@@ -346,9 +347,6 @@ proc test_current_location*(): (Tensor[int], bool, bool) =
     return test_location_custom(game.state.active_x, game.state.active_y, game.state.active_r, game.state.active, game.board)
 
 
-
-
-
 # Interprates the Action enum
 proc get_new_location*(a: Action): array[3, int] =
     
@@ -416,7 +414,7 @@ proc get_new_location*(a: Action): array[3, int] =
         return [game.state.active_x, game.state.active_y, game.state.active_r]  # this is a generic fallback
 
 
-proc evaluate_board() =
+proc evaluate_board(): string =
     var remove: seq[int]
     for a in 0 ..< rules.height:
         if product(game.board[a, _]) >= 1:
@@ -431,6 +429,14 @@ proc evaluate_board() =
             skips.inc()
     
     game.board = temp
+    return $skips
+
+
+proc invalidate_all_actions* =
+    game.state.movements = @[]
+    for a in Action:
+        var temp = Key_event(first_tap_done: true, movement: Move_type.single, action: a)
+        game.state.movements.add(temp)
 
 
 proc newGame* =
@@ -454,7 +460,7 @@ proc startGame* =
 
 
 proc set_settings* =  # add proc to do all default setup by itself
-    settings.controls.das = 87
+    settings.controls.das = 70
     settings.controls.arr = 0
     settings.controls.sds = 0
     settings.play.ghost = true
@@ -532,7 +538,9 @@ proc do_action(move: Action): bool =
         game.state.queue = now[0][1 .. now[0].high]
         game.board = now[1]
         game.history.del(game.history.high)
-        echo "Does undo"
+        game.state.active_x = game.rules.spawn_x
+        game.state.active_y = game.rules.spawn_y
+        game.state.active_r = 0        
     
     else:
         echo "else hit"
@@ -561,6 +569,9 @@ proc fix_queue*() =
 
 proc frame_step*(actions: seq[Action]) =
 
+    if len(game.state.event_log) == 0:
+        game.state.event_log.add((getMonoTime(), "game start"))
+
     
     # Check for game over
     var current = test_current_location()
@@ -569,10 +580,13 @@ proc frame_step*(actions: seq[Action]) =
 
     if not game.state.game_active:
         echo "returning"
+        game.state.event_log.add((getMonoTime(), "game end"))
         return
     
     fix_queue()
-    evaluate_board()
+    var change = evaluate_board()
+    if change != "0":
+        game.state.event_log.add((getMonoTime(), change))
     
 
     # remove released keys
@@ -621,11 +635,17 @@ proc frame_step*(actions: seq[Action]) =
         if press:
             case pressed[a].action:  # what we call it converted to how we implement
             of Action.left:
-                discard do_action(Action.left)
+                if settings.controls.arr == 0 and pressed[a].arr_active:
+                    discard do_action(Action.hard_left)
+                else:
+                    discard do_action(Action.left)
             of Action.down:
                 discard do_action(Action.hard_drop)
             of Action.right:
-                discard do_action(Action.right)
+                if settings.controls.arr == 0 and pressed[a].arr_active:
+                    discard do_action(Action.hard_right)
+                else:
+                    discard do_action(Action.right)
             of Action.counter_clockwise:
                 discard do_action(Action.counter_clockwise)
             of Action.clockwise:
