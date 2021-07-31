@@ -35,7 +35,7 @@ proc set_ui_settings() =
     ui.controls.keybinds = {KEY_J: Action.left, KEY_K: Action.down, KEY_L: Action.right, 
     KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_A: Action.hold, KEY_SPACE: Action.hard_drop,
     KEY_RIGHT: Action.hard_right, KEY_LEFT: Action.hard_left, KEY_ENTER: Action.lock, KEY_R: Action.reset,
-    KEY_S: Action.oneeighty}.toTable()
+    KEY_S: Action.oneeighty, KEY_Z: Action.undo}.toTable()
     ui.play.restart_on_death = true
 
 

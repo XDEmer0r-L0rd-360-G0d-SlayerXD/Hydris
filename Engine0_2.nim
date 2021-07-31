@@ -57,7 +57,7 @@ type  # consider changing these to ref objects while testing
         hold*: string
         hold_available*: bool
         queue*: string
-        current_combo*: int
+        current_chain*: int
         movements*: seq[Key_event]
     Stats = object
         time: float
@@ -69,10 +69,11 @@ type  # consider changing these to ref objects while testing
         rules*: Rules
         board*: Tensor[int]
         state*: State
-        stats*: Stats
+        stats*: Stats  # todo consider putting stats in state object
         settings*: Settings
+        history: seq[(State, Tensor[int])]
     Action* = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo
     Move_type = enum
         single, continuous, das
     Control_settings = object
@@ -81,6 +82,7 @@ type  # consider changing these to ref objects while testing
         sds: float  # soft drop speed
     Game_Play_settings = object
         ghost*: bool
+        history_len: int
     Settings* = object
         controls: Control_settings
         play*: Game_Play_settings
@@ -444,7 +446,7 @@ proc startGame* =
     game.state.active_r = 0
     game.state.hold = "-"
     game.state.queue = ""  # todo use random
-    game.state.current_combo = 0
+    game.state.current_chain = 0
 
 
 proc set_settings* =  # add proc to do all default setup by itself
@@ -452,6 +454,7 @@ proc set_settings* =  # add proc to do all default setup by itself
     settings.controls.arr = 0
     settings.controls.sds = 0
     settings.play.ghost = true
+    settings.play.history_len = 5
 
 
 proc do_action(move: Action): bool =
@@ -490,6 +493,9 @@ proc do_action(move: Action): bool =
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
         if not new_loc[1] or new_loc[2]:
             return false
+        game.history.add((game.state.deepCopy(), game.board.clone()))
+        if len(game.history) > settings.play.history_len:
+            game.history.delete(0)
         game.board = new_loc[0]
         game.state.active = get_mino($game.state.queue[0])
         game.state.queue = game.state.queue[1 .. game.state.queue.high]
@@ -513,6 +519,15 @@ proc do_action(move: Action): bool =
         game.state.active_x = game.rules.spawn_x
         game.state.active_y = game.rules.spawn_y
         game.state.active_r = 0
+
+    of Action.undo:
+        if len(game.history) < 1:
+            return false
+        let now = game.history[game.history.high]
+        game.state = now[0]
+        game.board = now[1]
+        game.history.del(game.history.high)
+        echo "Does undo"
     
     else:
         echo "else hit"
@@ -571,7 +586,7 @@ proc frame_step*(actions: seq[Action]) =
                 new_key.movement = Move_type.das
             of Action.down:
                 new_key.movement = Move_type.continuous
-            of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold:
+            of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold, Action.undo:
                 new_key.movement = Move_type.single
             else:
                 new_key.movement = Move_type.single
@@ -584,7 +599,6 @@ proc frame_step*(actions: seq[Action]) =
     template pressed: seq[Key_event] = game.state.movements
     for a in 0 ..< pressed.len():
         
-
         press = false
         if not pressed[a].first_tap_done:  # first tap
             pressed[a].first_tap_done = true
@@ -630,6 +644,8 @@ proc frame_step*(actions: seq[Action]) =
                 fix_queue()
                 pressed = @[Key_event(start_time: getMonoTime(), action: Action.reset, movement: Move_type.single, first_tap_done: true)]
                 # os.sleep(300)  # todo make this a setting
+            of Action.undo:
+                discard do_action(Action.undo)
             else:
                 echo fmt"missed {press}"
 
