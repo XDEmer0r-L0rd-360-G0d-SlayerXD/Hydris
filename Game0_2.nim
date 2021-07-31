@@ -15,6 +15,7 @@ type
         keybinds: Table[KeyboardKey, Action]
     Game_Play_settings = object
         ghost: bool  # no purpose tbh. Could just ask for a ghost version
+        restart_on_death: bool
     Settings = object
         visuals: Visual_settings
         controls: Control_settings
@@ -35,6 +36,7 @@ proc set_ui_settings() =
     KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_A: Action.hold, KEY_SPACE: Action.hard_drop,
     KEY_RIGHT: Action.hard_right, KEY_LEFT: Action.hard_left, KEY_ENTER: Action.lock, KEY_R: Action.reset,
     KEY_S: Action.oneeighty}.toTable()
+    ui.play.restart_on_death = true
 
 
 proc draw_game() =
@@ -73,7 +75,6 @@ proc draw_game() =
             draw_square(b + v.game_field_board_padding_left, a, col)
 
     # Draw the queue
-    var off_y = 0
     var mino: Mino
     for a in 0 ..< rules.visible_queue_len:
         mino = get_mino($game.state.queue[a])
@@ -100,31 +101,17 @@ proc draw_game() =
 proc gameLoop* =
     
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
-    SetTargetFPS(60)
-
-    const restart_on_death = true
-    # var pressed: seq[Key_event]
-    # var done = false
-    # var key_buffer: int
-    # var del_count: int
-    # var new_key: Key_event
+    SetTargetFPS(0)
     
     frame_step(@[])
-    while game.state.game_active and not WindowShouldClose():
+    while (game.state.game_active or ui.play.restart_on_death) and not WindowShouldClose():
         DrawFPS(10, 10)
 
-        # Check for game over
-        var current = test_current_location()
-        if not current[1] or current[2]:
-            if restart_on_death:
-                # echo fmt"{game.state.active_x} {current[1]} {current[2]}"
-                newGame()
-                startGame()
-                fix_queue()
-                echo "COLLISION == DEATH -> RESTART"
-            else:
-                game.state.game_active = false
-                continue
+        if not game.state.game_active:
+            newGame()
+            startGame()
+            fix_queue()
+            echo "COLLISION == DEATH -> RESTART"
             
         var pressed: seq[Action]
         # get keybinds
@@ -154,6 +141,7 @@ proc main =
     set_settings()
     set_ui_settings()
     startGame()
+    fix_queue()
     gameLoop()
 
 

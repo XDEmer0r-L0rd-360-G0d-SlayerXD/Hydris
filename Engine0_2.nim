@@ -1,5 +1,5 @@
 {.experimental: "codeReordering".}
-import tables, arraymancer, sequtils, strutils, strformat, rdstdin, random, std/monotimes, times
+import tables, arraymancer, strutils, strformat, random, std/monotimes, times
 # import raylib, rayutils
 # import math, random
 
@@ -340,29 +340,7 @@ proc test_current_location*(): (Tensor[int], bool, bool) =
     return test_location_custom(game.state.active_x, game.state.active_y, game.state.active_r, game.state.active, game.board)
 
 
-# A way to get user input rn
-proc get_user_action(): Action =
-    echo fmt"User input(0-7)>"
-    var action = readline(stdin)
-    # var action = "3"
-    # echo action, type(action)
-    case action:
-    of "0":
-        result = Action.lock
-    of "1":
-        result = Action.up
-    of "2":
-        result = Action.right
-    of "3":
-        result = Action.down
-    of "4":
-        result = Action.left
-    of "5":
-        result = Action.counter_clockwise
-    of "6":
-        result = Action.clockwise
-    of "7":
-        result = Action.hard_drop
+
 
 
 # Interprates the Action enum
@@ -398,7 +376,6 @@ proc get_new_location*(a: Action): array[3, int] =
         var movement = get_new_location(Action.max_down)
         var offset = 0
         var new_loc: (Tensor[int], bool, bool)
-        var hit = false
         while movement[1] <= game.state.active_y - offset:
             new_loc = test_location_custom(movement[0], game.state.active_y - offset, movement[2], game.state.active, game.board)
             if new_loc[1] and not new_loc[2]:
@@ -410,21 +387,17 @@ proc get_new_location*(a: Action): array[3, int] =
         var movement = get_new_location(Action.max_right)
         var offset = 0
         var new_loc: (Tensor[int], bool, bool)
-        var hit = false
         while movement[0] >= game.state.active_x + offset:
             new_loc = test_location_custom(game.state.active_x + offset, movement[1], movement[2], game.state.active, game.board)
             if new_loc[1] and not new_loc[2]:
                 offset.inc()
             else:
-                echo "colision"
                 return [game.state.active_x + offset - 1, game.state.active_y, game.state.active_r]
-        echo "wall"
         return [movement[0], game.state.active_y, game.state.active_r]
     of Action.hard_left:
         var movement = get_new_location(Action.max_left)
         var offset = 0
         var new_loc: (Tensor[int], bool, bool)
-        var hit = false
         while movement[0] <= game.state.active_x + offset:
             new_loc = test_location_custom(game.state.active_x - offset, movement[1], movement[2], game.state.active, game.board)
             if new_loc[1] and not new_loc[2]:
@@ -567,6 +540,16 @@ proc fix_queue*() =
 
 
 proc frame_step*(actions: seq[Action]) =
+
+    
+    # Check for game over
+    var current = test_current_location()
+    if not current[1] or current[2]:
+        game.state.game_active = false
+
+    if not game.state.game_active:
+        echo "returning"
+        return
     
     fix_queue()
     evaluate_board()
@@ -595,7 +578,6 @@ proc frame_step*(actions: seq[Action]) =
                 echo fmt"{act} not set"
             game.state.movements.add(new_key)
 
-    echo game.state.movements
     # trigger actions that need to
     var press: bool
     # var pressed: seq[Key_event] = addr(game.state.movements)
@@ -645,6 +627,7 @@ proc frame_step*(actions: seq[Action]) =
             of Action.reset:
                 newGame()
                 startGame()
+                fix_queue()
                 pressed = @[Key_event(start_time: getMonoTime(), action: Action.reset, movement: Move_type.single, first_tap_done: true)]
                 # os.sleep(300)  # todo make this a setting
             else:
