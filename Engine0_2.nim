@@ -45,7 +45,7 @@ type  # consider changing these to ref objects while testing
     Key_event = object
         start_time: MonoTime
         arr_active: bool
-        first_tap: bool
+        first_tap_done: bool
         movement: Move_type
         action: Action
     State = object
@@ -475,7 +475,7 @@ proc startGame* =
 
 
 proc set_settings* =  # add proc to do all default setup by itself
-    settings.controls.das = 70
+    settings.controls.das = 87
     settings.controls.arr = 0
     settings.controls.sds = 0
     settings.play.ghost = true
@@ -575,7 +575,7 @@ proc frame_step*(actions: seq[Action]) =
     # remove released keys
     var del_count = 0
     for a in 0 .. game.state.movements.high():
-        if game.state.movements[a] notin actions:
+        if game.state.movements[a - del_count] notin actions:
             game.state.movements.del(a - del_count)
             del_count.inc()
             
@@ -595,15 +595,17 @@ proc frame_step*(actions: seq[Action]) =
                 echo fmt"{act} not set"
             game.state.movements.add(new_key)
 
+    echo game.state.movements
     # trigger actions that need to
     var press: bool
-    var pressed: seq[Key_event] = addr(game.state.movements)[]
+    # var pressed: seq[Key_event] = addr(game.state.movements)
+    template pressed: seq[Key_event] = game.state.movements
     for a in 0 ..< pressed.len():
         
 
         press = false
-        if not pressed[a].first_tap:  # first tap
-            pressed[a].first_tap = true
+        if not pressed[a].first_tap_done:  # first tap
+            pressed[a].first_tap_done = true
             press = true
         elif pressed[a].movement == Move_type.das and not pressed[a].arr_active and getMonoTime() - pressed[a].start_time > initDuration(milliseconds = toInt(settings.controls.das)):  # das done
             pressed[a].start_time = pressed[a].start_time - initDuration(milliseconds = toInt(settings.controls.das))  # todo consider moving these to down to when I actually press things. Also these are prob + not -
@@ -643,7 +645,7 @@ proc frame_step*(actions: seq[Action]) =
             of Action.reset:
                 newGame()
                 startGame()
-                pressed = @[Key_event(start_time: getMonoTime(), action: Action.reset, movement: Move_type.single, first_tap: true)]
+                pressed = @[Key_event(start_time: getMonoTime(), action: Action.reset, movement: Move_type.single, first_tap_done: true)]
                 # os.sleep(300)  # todo make this a setting
             else:
                 echo fmt"missed {press}"

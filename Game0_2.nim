@@ -100,7 +100,7 @@ proc draw_game() =
 proc gameLoop* =
     
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
-    SetTargetFPS(0)
+    SetTargetFPS(60)
 
     const restart_on_death = true
     # var pressed: seq[Key_event]
