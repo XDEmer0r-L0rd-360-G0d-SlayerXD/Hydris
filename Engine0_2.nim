@@ -71,7 +71,7 @@ type  # consider changing these to ref objects while testing
         state*: State
         stats*: Stats  # todo consider putting stats in state object
         settings*: Settings
-        history: seq[(State, Tensor[int])]
+        history: seq[(string, Tensor[int])]
     Action* = enum
         lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo
     Move_type = enum
@@ -89,8 +89,12 @@ type  # consider changing these to ref objects while testing
         
 
 var game*: Game
-var rules* = addr(game.rules)
-var settings* = addr(game.settings)  # todo consider moving settings into rules
+# var rules* = addr(game.rules)
+# var settings* = addr(game.settings)  # todo consider moving settings into rules
+
+template rules*: Rules = game.rules
+
+template settings*: Settings = game.settings
 
 
 # Helpers
@@ -454,7 +458,7 @@ proc set_settings* =  # add proc to do all default setup by itself
     settings.controls.arr = 0
     settings.controls.sds = 0
     settings.play.ghost = true
-    settings.play.history_len = 5
+    settings.play.history_len = 100
 
 
 proc do_action(move: Action): bool =
@@ -493,9 +497,9 @@ proc do_action(move: Action): bool =
         var new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
         if not new_loc[1] or new_loc[2]:
             return false
-        game.history.add((game.state.deepCopy(), game.board.clone()))
+        game.history.add((game.state.active.name & game.state.queue, game.board.clone()))
         if len(game.history) > settings.play.history_len:
-            game.history.delete(0)
+            game.history.delete(0)  # this is the bad line of code
         game.board = new_loc[0]
         game.state.active = get_mino($game.state.queue[0])
         game.state.queue = game.state.queue[1 .. game.state.queue.high]
@@ -524,7 +528,8 @@ proc do_action(move: Action): bool =
         if len(game.history) < 1:
             return false
         let now = game.history[game.history.high]
-        game.state = now[0]
+        game.state.active = get_mino($now[0][0])
+        game.state.queue = now[0][1 .. now[0].high]
         game.board = now[1]
         game.history.del(game.history.high)
         echo "Does undo"
