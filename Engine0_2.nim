@@ -42,6 +42,7 @@ type  # consider changing these to ref objects while testing
         kick_table: string
         visible_queue_len*: int
         gravity_speed: int
+        preview_time*: float
     Key_event = object
         start_time: MonoTime
         arr_active: bool
@@ -49,7 +50,7 @@ type  # consider changing these to ref objects while testing
         movement: Move_type
         action: Action
     State = object
-        game_active*: bool
+        phase*: Game_phase
         active*: Mino  # maybe make this ref? 
         active_x*: int
         active_y*: int
@@ -59,7 +60,7 @@ type  # consider changing these to ref objects while testing
         queue*: string
         current_chain*: int
         movements*: seq[Key_event]
-        event_log*: seq[(MonoTime, string)]
+        event_log*: seq[(MonoTime, string)]  # event_log and history are kinda similar
     Stats = object
         time: float
         lines_cleared: int
@@ -77,6 +78,8 @@ type  # consider changing these to ref objects while testing
         lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo
     Move_type = enum
         single, continuous, das
+    Game_phase* = enum
+        dead, preview, play, paused
     Control_settings = object
         das: float  # units should be ms/square
         arr: float
@@ -283,7 +286,8 @@ proc setRules(name: string) =
     of "TETRIO":
         game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
         clear_delay: 0.0, spawn_x: 4, spawn_y: 21, allow_clutch_clear: true, softdrop_duration: 0, 
-        bag_piece_names: "JLSZIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, visible_queue_len: 5, gravity_speed: 0
+        bag_piece_names: "JLSZIOT", bag_type: "7 bag", kick_table: "SRS+", can_hold: true, 
+        visible_queue_len: 5, gravity_speed: 0, preview_time: 3
         )
     of "MAIN":
         game.rules = Rules(name: name, width: 10, visible_height: 20, height: 24, place_delay: 0.0, 
@@ -449,7 +453,10 @@ proc newGame* =
 
 # prepare the initial state
 proc startGame* =
-    game.state.game_active = true
+    if rules.preview_time > 0:
+        game.state.phase = Game_phase.preview
+    else:
+        game.state.phase = Game_phase.play
     game.state.active.name = "-"
     game.state.active_x = rules.spawn_x
     game.state.active_y = rules.spawn_y
@@ -576,9 +583,9 @@ proc frame_step*(actions: seq[Action]) =
     # Check for game over
     var current = test_current_location()
     if not current[1] or current[2]:
-        game.state.game_active = false
+        game.state.phase = Game_phase.dead
 
-    if not game.state.game_active:
+    if game.state.phase == Game_phase.dead:
         echo "returning"
         game.state.event_log.add((getMonoTime(), "game end"))
         return

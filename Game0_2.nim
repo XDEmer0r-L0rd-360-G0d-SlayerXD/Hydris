@@ -103,17 +103,20 @@ proc gameLoop* =
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
     SetTargetFPS(60)
     
+    var preview = true
     frame_step(@[])
-    while (game.state.game_active or ui.play.restart_on_death) and not WindowShouldClose():
+    while (game.state.phase != Game_phase.dead or ui.play.restart_on_death) and not WindowShouldClose():
         DrawFPS(10, 10)
 
-        if not game.state.game_active:
+        if game.state.phase == Game_phase.dead:
             newGame()
             startGame()
             fix_queue()
             invalidate_all_actions()
+            preview = true
             echo "RESTARTING"
-            
+        
+        # if not preview:
         var pressed: seq[Action]
         # get keybinds
         for a in ui.controls.keybinds.keys():
@@ -143,7 +146,7 @@ proc gameLoop* =
         if count >= 40:
             var time = game.state.event_log[^1][0] - game.state.event_log[0][0]
             echo fmt"Done in {time}s"
-            game.state.game_active = false
+            game.state.phase = Game_phase.dead
 
     
     CloseWindow()
