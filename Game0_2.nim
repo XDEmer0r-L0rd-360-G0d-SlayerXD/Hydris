@@ -1,5 +1,5 @@
-import Engine0_2
-import tables, arraymancer, strformat, strutils, std.monotimes
+import sim, Board0_3
+import tables, arraymancer, strformat, strutils, std/monotimes
 import raylib, rayutils
 
 type
@@ -23,11 +23,19 @@ type
 
 var ui*: Settings
 
+# Helpers
+
+proc `*`*(x: float, y: int): float =
+    return x * toFloat(y)
+
+proc `/`*(x: float, y: int): float =
+    return x / toFloat(y)
+
 proc set_ui_settings() =
     # Todo check for file later. I'll just use defaults for now.
     ui.visuals.game_field_offset_left = 0.1
     ui.visuals.game_field_offset_top = 0.1
-    ui.visuals.game_field_units_wide = 10 + rules.width  # todo change the order of calling settings and game to allow loading later
+    ui.visuals.game_field_units_wide = 10 + 10  # todo change the order of calling settings and game to allow loading later
     ui.visuals.game_field_board_padding_left = 5
     ui.visuals.window_height = 900
     ui.visuals.window_width = 800
@@ -39,55 +47,56 @@ proc set_ui_settings() =
     ui.play.restart_on_death = true
 
 
-proc draw_game() =
+proc draw_game(sim: Sim) =
     # We assume were in drawing mode
-    let v = ui.visuals
+    template v: Visual_settings = ui.visuals
     let size = toInt((1 - v.game_field_offset_left * 2) * v.window_width / v.game_field_units_wide)
     let x_offset = toInt(v.game_field_offset_left * v.window_width)
     let y_offset = toInt(v.game_field_offset_top * v.window_height)
     let grid_lines = 1
-    
+
     proc draw_square(x: int, y: int, col: Color) =
         # This assumes drawing in the game field with a finness of the min size
         DrawRectangle(x * (size + grid_lines) + x_offset, y * (size + grid_lines) + y_offset, size, size, col)
 
-    var ghost_board: Tensor[int]
-    if settings.play.ghost:
-        let movement = get_new_location(Action.hard_drop)
-        let new_loc = test_location_custom(movement[0], movement[1], movement[2], game.state.active, game.board)
-        ghost_board = new_loc[0] - game.board
+    var ghost_board: Board
+    if sim.settings.play.ghost:
+        let movement = get_new_location(sim.board, sim.state, Action.hard_drop)
+        let new_loc = test_location(sim.board, sim.state.active, movement[0], movement[1], movement[2])
+        ghost_board = new_loc[2]
         
 
     # Draw the game board
-    let loc = test_current_location()[0]
-    var val: int
+    let loc = test_location(sim.board, sim.state.active, sim.state.active_x, sim.state.active_y, sim.state.active_r)[2]
+    var val: Block
     var col: Color
-    for a in 0 ..< rules.height:
-        for b in 0 ..< rules.width:
-            val = loc[a, b]
-            if val == 1:
+    for a in 0 ..< sim.config.height:
+        for b in 0 ..< sim.config.width:
+            case loc[a, b]:
+            of T, I, O, L, J, S, Z:
                 col = makecolor(200, 0, 0)
-            elif settings.play.ghost and ghost_board[a, b] == 1:
-                col = makecolor(100, 0, 0)
             else:
-                col = makecolor(50, 50, 50)
+                if sim.settings.play.ghost and (ghost_board[a, b] != Block.empty):
+                    col = makecolor(100, 0, 0)
+                else:
+                    col = makecolor(50, 50, 50)
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
             draw_square(b + v.game_field_board_padding_left, a, col)
 
     # Draw the queue
     var mino: Mino
-    for a in 0 ..< rules.visible_queue_len:
-        mino = get_mino($game.state.queue[a])
+    for a in 0 ..< sim.settings.rules.visible_queue_len:
+        mino = mino_from_str(sim.config, $sim.state.queue[a])
         for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
             for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
                 if mino.rotation_shapes[0].shape[y, x] == 1:
                     col = makecolor(200, 0, 0)
                 else:
                     col = makecolor(50, 50, 50)
-                draw_square(ui.visuals.game_field_board_padding_left + rules.width + 1 + x, a * 5 + y, col)
+                draw_square(ui.visuals.game_field_board_padding_left + sim.config.width + 1 + x, a * 5 + y, col)
     
-    if game.state.hold != "-":
-        mino = get_mino(game.state.hold)
+    if sim.state.holding != "-":
+        mino = mino_from_str(sim.config, sim.state.holding)
         for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
             for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
                 if mino.rotation_shapes[0].shape[y, x] == 1:
@@ -98,23 +107,23 @@ proc draw_game() =
         
 
 
-proc gameLoop* =
+proc gameLoop*(sim: var Sim) =
     
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
     SetTargetFPS(60)
     
     var preview = true
-    frame_step(@[])
-    while (game.state.phase != Game_phase.dead or ui.play.restart_on_death) and not WindowShouldClose():
+    frame_step(sim, @[])
+    while ui.play.restart_on_death and not WindowShouldClose():
         DrawFPS(10, 10)
 
-        if game.state.phase == Game_phase.dead:
-            newGame()
-            startGame()
-            fix_queue()
-            invalidate_all_actions()
-            preview = true
-            echo "RESTARTING"
+        # if game.state.phase == Game_phase.dead:
+        #     newGame()
+        #     startGame()
+        #     fix_queue()
+        #     invalidate_all_actions()
+        #     preview = true
+        #     echo "RESTARTING"
         
         # if not preview:
         var pressed: seq[Action]
@@ -125,28 +134,28 @@ proc gameLoop* =
         
 
         # Update game
-        frame_step(pressed)
+        sim.frame_step(pressed)
 
 
         ClearBackground(makecolor(0, 0, 30))
         BeginDrawing()
         
-        draw_game()
+        draw_game(sim)
 
         EndDrawing()
 
-        # lines cleared
-        var count = 0
-        for a in game.state.event_log:
-            case a[1]:
-            of "1", "2", "3", "4":
-                count.inc(parseInt(a[1]))
-        DrawText(fmt"{count}/40", 30, 500, 30, WHITE)
+        # # lines cleared
+        # var count = 0
+        # for a in game.state.event_log:
+        #     case a[1]:
+        #     of "1", "2", "3", "4":
+        #         count.inc(parseInt(a[1]))
+        # DrawText(fmt"{count}/40", 30, 500, 30, WHITE)
 
-        if count >= 40:
-            var time = game.state.event_log[^1][0] - game.state.event_log[0][0]
-            echo fmt"Done in {time}s"
-            game.state.phase = Game_phase.dead
+        # if count >= 40:
+        #     var time = game.state.event_log[^1][0] - game.state.event_log[0][0]
+        #     echo fmt"Done in {time}s"
+        #     game.state.phase = Game_phase.dead
 
     
     CloseWindow()
@@ -154,12 +163,16 @@ proc gameLoop* =
 
 proc main =
     
-    newGame()
-    set_settings()
+    var preset = getPresetRules("MAIN")
+    var sim = initSim(preset[0], preset[1])
+    reboot_all(sim)
+    echo sim
+    # newGame()
+    # set_settings()
     set_ui_settings()
-    startGame()
-    fix_queue()
-    gameLoop()
+    # startGame()
+    # fix_queue()
+    gameLoop(sim)
 
 
 if isMainModule:
