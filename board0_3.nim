@@ -341,7 +341,7 @@ proc test_location*(b: Board, m: Mino, x, y, r: int): (bool, bool, Board) =  # (
     if x < mshape.x_min or x > mshape.x_max or y < mshape.y_min or y > mshape.y_max:
         return (false, false, b)
 
-    var sample = b.fake_clone()  # TODO THIS IS BAD
+    var sample = b.clone()
     var sx, sy: int
     var cleanly = true
     var block_val: Block
@@ -358,12 +358,13 @@ proc test_location*(b: Board, m: Mino, x, y, r: int): (bool, bool, Board) =  # (
             if (sample[sy, sx] != Block.empty) and (cleaned[a, b] != Block.empty):
                 cleanly = false
 
-            sample[sy, sx] = cleaned[a, b]
+            if cleaned[a, b] != Block.empty:
+                sample[sy, sx] = cleaned[a, b]
 
     return (true, cleanly, sample)
 
 
-proc test_location(b: Board, s: State): (bool, bool, Board) =
+proc test_location*(b: Board, s: State): (bool, bool, Board) =
     b.test_location(s.active, s.active_x, s.active_y, s.active_r)
 
 
@@ -458,7 +459,7 @@ proc do_action*(s: var State, b: var Board, r: Rules, move: Action): bool =  # T
             new_y = movement[1] + a[1]
 
             new_loc = test_location(b, s.active, new_x, new_y, movement[2])
-            if new_loc[0] and not new_loc[1]:
+            if new_loc[0] and new_loc[1]:
                 s.active_x = new_x
                 s.active_y = new_y
                 s.active_r = movement[2]
@@ -533,6 +534,8 @@ proc clear_lines*(board: var Board): int =
 
     if len(lines) > 0:
         board[0 ..< len(lines), _] = Block.empty
+    
+    return skips
 
 
 ### Adds event loop stuff
@@ -541,11 +544,11 @@ proc add*(container: var Event_container, action: Action_event) =
     container.actions.add(action)
 
 
-proc add(container: var Event_container, phase: Phase_event) =
+proc add*(container: var Event_container, phase: Phase_event) =
     container.phases.add(phase)
 
 
-proc del(container: var Event_container, action: Action) =  # TODO all things with delete will probably delete wring things if multiple found
+proc del*(container: var Event_container, action: Action) =  # TODO all things with delete will probably delete wring things if multiple found
 
     template act: seq[Action_event] = container.actions
 
@@ -555,7 +558,7 @@ proc del(container: var Event_container, action: Action) =  # TODO all things wi
             return
 
 
-proc del(container: var Event_container, phase: Game_phase) =  
+proc del*(container: var Event_container, phase: Game_phase) =  
 
     template act: seq[Phase_event] = container.phases
 
@@ -563,7 +566,18 @@ proc del(container: var Event_container, phase: Game_phase) =
         if act[a].phase == phase:
             act.del(a)
             return
-            
+
+
+proc del_all*(container: var Event_container, phase: Game_phase) =
+    
+    template phases: seq[Phase_event] = container.phases
+
+    var offset = 0
+    for a in 0 .. phases.high:
+        if phases[a - offset].phase == phase:
+            phases.del(a - offset)
+            offset += 1
+
 
 
 proc tick_action*(container: var Event_container, actions: seq[Action]): seq[Action] =
@@ -572,9 +586,11 @@ proc tick_action*(container: var Event_container, actions: seq[Action]): seq[Act
     template act: seq[Action_event] = container.actions
 
     # TODO I should be able to combine this in a single loop
+    var offset = 0
     for a in 0 .. act.high:
-        if act[a].action notin actions:
-            act.delete(a)
+        if act[a - offset].action notin actions:
+            act.delete(a - offset)
+            offset = offset + 1
     
     var activations: seq[Action]
 
@@ -604,20 +620,24 @@ proc tick_action_invalidate_all*(container: var Event_container) =
         container.actions.add(temp)
 
 
-proc tick_phase(container: var Event_container): seq[Game_phase] =
-    ## This effectively auto queries all stopwatches
+proc tick_phase*(container: var Event_container): seq[Game_phase] =
+    ## This effectively auto queries all stopwatches and removes it when triggered
     
     template phas: seq[Phase_event] = container.phases
 
     var triggered: seq[Game_phase]
 
+    var offset = 0
     for a in 0 .. phas.high:
-        if phas[a].phase_type == Phase_type.timer and getMonoTime() - phas[a].start_time > initDuration(milliseconds = toInt(phas[a].duration)):
-            triggered.add(phas[a].phase)
-            phas.delete(a)
+        if phas[a - offset].phase_type == Phase_type.timer and getMonoTime() - phas[a - offset].start_time > initDuration(milliseconds = toInt(phas[a - offset].duration)):
+            triggered.add(phas[a - offset].phase)
+            phas.delete(a - offset)  # TODO can probably be changed to del
+            offset = offset + 1
+    
+    return triggered
 
 
-proc tick_events(container: var Event_container, actions: seq[Action]): (seq[Action], seq[Game_phase]) =
+proc tick_events*(container: var Event_container, actions: seq[Action]): (seq[Action], seq[Game_phase]) =
     let act = tick_action(container, actions)
     let phas = tick_phase(container)
     return (act, phas)
@@ -631,7 +651,7 @@ proc get_info*(container: Event_container, act: Action): bool =
     return false
 
 
-proc get_info(container: Event_container, phase: Game_phase): float =
+proc get_info*(container: Event_container, phase: Game_phase): float =
     for a in container.phases:
         if a.phase == phase:
             if a.phase_type == Phase_type.stopwatch:

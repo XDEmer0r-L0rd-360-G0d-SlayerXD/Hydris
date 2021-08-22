@@ -1,4 +1,4 @@
-import sim, Board0_3
+import sim, board0_3
 import tables, arraymancer, strformat, strutils, std/monotimes
 import raylib, rayutils
 
@@ -110,11 +110,11 @@ proc draw_game(sim: Sim) =
 proc gameLoop*(sim: var Sim) =
     
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
-    SetTargetFPS(60)
+    SetTargetFPS(0)
     
     var preview = true
-    frame_step(sim, @[])
-    while ui.play.restart_on_death and not WindowShouldClose():
+    # frame_step(sim, @[])
+    while not WindowShouldClose():
         DrawFPS(10, 10)
 
         # if game.state.phase == Game_phase.dead:
@@ -140,22 +140,35 @@ proc gameLoop*(sim: var Sim) =
         ClearBackground(makecolor(0, 0, 30))
         BeginDrawing()
         
-        draw_game(sim)
+        case sim.phase:
+        of Game_phase.play:
+            draw_game(sim)
+        
+        of Game_phase.preview:
+            draw_game(sim)
+            let time = sim.events.get_info(Game_phase.play) / 1000
+            if time > 0:
+                DrawText(formatFloat(time, precision = 3) & "s", 100, 100, 50, WHITE)
+            # echo sim.events.get_event(Game_phase.play)
+
+
+        else:
+            let death_data = sim.events.get_info(Game_phase.preview)
+            if death_data > 0:
+                DrawText(formatFloat(death_data / 1000, precision = 3) & "s Until respawn", 100, 100, 50, WHITE)
+        
 
         EndDrawing()
 
-        # # lines cleared
-        # var count = 0
-        # for a in game.state.event_log:
-        #     case a[1]:
-        #     of "1", "2", "3", "4":
-        #         count.inc(parseInt(a[1]))
-        # DrawText(fmt"{count}/40", 30, 500, 30, WHITE)
+        DrawText(fmt"{sim.stats.lines_cleared}/8", 30, 500, 30, WHITE)
 
-        # if count >= 40:
-        #     var time = game.state.event_log[^1][0] - game.state.event_log[0][0]
-        #     echo fmt"Done in {time}s"
-        #     game.state.phase = Game_phase.dead
+        if sim.stats.lines_cleared >= 8:
+            echo fmt"Done in {sim.events.get_info(Game_phase.play)/1000}s"
+            sim.events.del_all(Game_phase.play)
+            sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.dead, duration: 0))
+            sim.reboot_game()
+            sim.frame_step(@[])
+            tick_action_invalidate_all(sim.events)
 
     
     CloseWindow()
@@ -165,8 +178,7 @@ proc main =
     
     var preset = getPresetRules("MAIN")
     var sim = initSim(preset[0], preset[1])
-    reboot_all(sim)
-    echo sim
+    reboot_game(sim)
     # newGame()
     # set_settings()
     set_ui_settings()

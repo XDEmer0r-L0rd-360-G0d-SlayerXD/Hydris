@@ -5,12 +5,12 @@ import arraymancer, Board0_3, std/monotimes, tables
 
 type
 
-    Stats = object
-        time: float
-        lines_cleared: int
-        pieces_placed: int
-        score: int
-        lines_sent: int
+    Stats* = object
+        time*: float
+        lines_cleared*: int
+        pieces_placed*: int
+        score*: int
+        lines_sent*: int
     Sim* = object  # TODO may want to get rid of this construct as well
         stats*: Stats  # TODO consider putting stats in state object
         settings*: Settings
@@ -18,6 +18,7 @@ type
         state*: State
         config*: Rules
         events*: Event_container
+        phase*: Game_phase
         # history: seq[(string, Tensor[int])]
     Control_settings = object
         das: float  # units should be ms/square
@@ -94,88 +95,169 @@ proc initSim*(r: Rules, s: Settings): Sim =
     # echo result
 
 
-proc reset_sim(sim: var Sim) =
+proc reset_state(sim: var Sim) =
     sim.state = State(active: initEmptyMino())  # This should have the correct default values iirc
     sim.state.holding = "-"
     sim.state.queue = ""
 
 
-proc reboot_all*(sim: var Sim) =
+proc reset_stats(sim: var Sim) =
+    sim.stats = Stats()
+
+
+proc reboot_game*(sim: var Sim) =
     ## Wipe the board and reset the state
 
     sim.board = initBoard(sim.config)
-    reset_sim(sim)
+    reset_state(sim)
+    reset_stats(sim)
 
 
 proc frame_step*(sim: var Sim, inputs: seq[Action]) =
     ## This is the main loop of the sim
     
-    while len(sim.state.queue) < sim.settings.rules.visible_queue_len:
-        # echo sim.state.queue
-        sim.state.extend_queue(sim.config)
+    # Start the game if nothing is ready
+    if len(sim.events.phases) == 0:
+        sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
+        sim.phase = Game_phase.play
     
-    if sim.state.active.pattern == Block.empty:
-        sim.state.set_mino(sim.config, $sim.state.queue[0])
-        sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
 
-    let cleared = sim.board.clear_lines()
-    # echo cleared, " lines cleared"  # TODO make this conditional
-
-    for a in inputs:
-        if not get_info(sim.events, a):
-            var movement: Move_type
-            case a:
-            of Action.right, Action.left:
-                movement = Move_type.das
-            of Action.down:
-                movement = Move_type.continuous
-            of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold, Action.undo:
-                movement = Move_type.single
-            else:
-                movement = Move_type.single
-                echo "Action not set"
-            sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
-
-    let activations = tick_action(sim.events, inputs)
-
-    for a in activations:
-        case a:
-        of Action.left:
-                if sim.settings.controls.arr == 0 and get_event(sim.events, a).arr_active:
-                    discard do_action(sim.state, sim.board, sim.config, Action.hard_left)
-                else:
-                    discard do_action(sim.state, sim.board, sim.config, Action.left)
-        of Action.down:
-            discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
-        of Action.right:
-            if sim.settings.controls.arr == 0 and get_event(sim.events, a).arr_active:
-                discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
-            else:
-                discard do_action(sim.state, sim.board, sim.config, Action.right)
-        of Action.counter_clockwise:
-            discard do_action(sim.state, sim.board, sim.config, Action.counter_clockwise)
-        of Action.clockwise:
-            discard do_action(sim.state, sim.board, sim.config, Action.clockwise)
-        of Action.oneeighty:
-            discard do_action(sim.state, sim.board, sim.config, Action.oneeighty)
-        of Action.hard_drop:
-            discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
-            discard do_action(sim.state, sim.board, sim.config, Action.lock)
-        of Action.hard_right:
-            discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
-        of Action.hard_left:
-            discard do_action(sim.state, sim.board, sim.config, Action.hard_left)
-        of Action.lock:
-            discard do_action(sim.state, sim.board, sim.config, Action.lock)
-        of Action.hold:
-            discard do_action(sim.state, sim.board, sim.config, Action.hold)
-        of Action.reset:
-            sim.reboot_all()
-            tick_action_invalidate_all(sim.events)
-        of Action.undo:
-            discard do_action(sim.state, sim.board, sim.config, Action.undo)
+    let phase_changes = tick_phase(sim.events)
+    if len(phase_changes) > 0:
+        sim.phase = phase_changes[0]
+        case phase_changes[0]:
+        of Game_phase.play:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
+        of Game_phase.dead:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 1000))
+        of Game_phase.preview:
+                sim.events.del_all(Game_phase.play)
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: 3000))
         else:
-            echo "missed Action"
+            echo "Wierd phase things"
+
+    case sim.phase:
+
+    of Game_phase.play:
+        let death_check = test_location(sim.board, sim.state)
+        if not death_check[0] or not death_check[1]:
+            sim.events.del_all(Game_phase.play)
+            sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.dead, duration: 0))
+            sim.reboot_game()
+            sim.frame_step(@[])
+            tick_action_invalidate_all(sim.events)
+            echo "Died"
+            return
+
+        while len(sim.state.queue) <= sim.settings.rules.visible_queue_len:
+            # echo sim.state.queue
+            sim.state.extend_queue(sim.config)
+        
+        # Fill active gap if there is one
+        if sim.state.active.pattern == Block.empty:
+            sim.state.set_mino(sim.config, $sim.state.queue[0])
+            sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
+
+        let cleared = sim.board.clear_lines()
+        if cleared > 0:
+            # echo cleared, " lines cleared"
+            sim.stats.lines_cleared += cleared
+        # echo cleared, " lines cleared"  # TODO make this conditional
+
+        for a in inputs:
+            if not get_info(sim.events, a):
+                var movement: Move_type
+                case a:
+                of Action.right, Action.left:
+                    movement = Move_type.das
+                of Action.down:
+                    movement = Move_type.continuous
+                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold, Action.undo:
+                    movement = Move_type.single
+                else:
+                    movement = Move_type.single
+                    echo "Action not set"
+                sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
+
+        let activations = tick_action(sim.events, inputs)
+
+        for a in activations:
+            case a:
+            of Action.left:
+                    if sim.settings.controls.arr == 0 and get_event(sim.events, a).arr_active:
+                        discard do_action(sim.state, sim.board, sim.config, Action.hard_left)
+                    else:
+                        discard do_action(sim.state, sim.board, sim.config, Action.left)
+            of Action.down:
+                discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
+            of Action.right:
+                if sim.settings.controls.arr == 0 and get_event(sim.events, a).arr_active:
+                    discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
+                else:
+                    discard do_action(sim.state, sim.board, sim.config, Action.right)
+            of Action.counter_clockwise:
+                discard do_action(sim.state, sim.board, sim.config, Action.counter_clockwise)
+            of Action.clockwise:
+                discard do_action(sim.state, sim.board, sim.config, Action.clockwise)
+            of Action.oneeighty:
+                discard do_action(sim.state, sim.board, sim.config, Action.oneeighty)
+            of Action.hard_drop:
+                discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
+                discard do_action(sim.state, sim.board, sim.config, Action.lock)
+            of Action.hard_right:
+                discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
+            of Action.hard_left:
+                discard do_action(sim.state, sim.board, sim.config, Action.hard_left)
+            of Action.lock:
+                discard do_action(sim.state, sim.board, sim.config, Action.lock)
+            of Action.hold:
+                discard do_action(sim.state, sim.board, sim.config, Action.hold)
+            of Action.reset:
+                sim.reboot_game()
+                sim.frame_step(@[])
+                tick_action_invalidate_all(sim.events)
+                sim.events.del_all(Game_phase.play)
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: 1000))
+                sim.phase = Game_phase.preview
+            of Action.undo:
+                discard do_action(sim.state, sim.board, sim.config, Action.undo)
+            else:
+                echo "missed Action"
+    
+    of Game_phase.dead:
+        return
+
+    of Game_phase.preview:
+        
+        while len(sim.state.queue) <= sim.settings.rules.visible_queue_len:
+            # echo sim.state.queue
+            sim.state.extend_queue(sim.config)
+        
+        if sim.state.active.pattern == Block.empty:
+            sim.state.set_mino(sim.config, $sim.state.queue[0])
+            sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
+        
+        
+        for a in inputs:
+            if not get_info(sim.events, a):
+                var movement: Move_type
+                case a:
+                of Action.right, Action.left:
+                    movement = Move_type.das
+                of Action.down:
+                    movement = Move_type.continuous
+                of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold, Action.undo:
+                    movement = Move_type.single
+                else:
+                    movement = Move_type.single
+                    echo "Action not set"
+                sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
+
+        discard tick_action(sim.events, inputs)
+
+
+    else:
+        echo "Wierd phase things"
 
 
 
@@ -186,5 +268,5 @@ if isMainModule:
     # quit()
     var sim = initSim(preset[0], preset[1])
     # echo preset
-    reboot_all(sim)
+    reboot_game(sim)
     frame_step(sim, @[])
