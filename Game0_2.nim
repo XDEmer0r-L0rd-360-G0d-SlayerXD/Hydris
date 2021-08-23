@@ -55,6 +55,10 @@ proc draw_game(sim: Sim) =
     let y_offset = toInt(v.game_field_offset_top * v.window_height)
     let grid_lines = 1
 
+    let mino_col = {T: makecolor(127, 0, 127), I: makecolor(0, 255, 255), O: makecolor(255, 255, 0), 
+    L: makecolor(255, 127, 0), J: makecolor(0, 0, 255), S: makecolor(0, 255, 0), Z: makecolor(255, 0, 0),
+    empty: makecolor(10, 10, 10), ghost: makecolor(50, 50, 50)}.toTable
+
     proc draw_square(x: int, y: int, col: Color) =
         # This assumes drawing in the game field with a finness of the min size
         DrawRectangle(x * (size + grid_lines) + x_offset, y * (size + grid_lines) + y_offset, size, size, col)
@@ -74,12 +78,12 @@ proc draw_game(sim: Sim) =
         for b in 0 ..< sim.config.width:
             case loc[a, b]:
             of T, I, O, L, J, S, Z:
-                col = makecolor(200, 0, 0)
+                col = mino_col[loc[a, b]]
             else:
                 if sim.settings.play.ghost and (ghost_board[a, b] != Block.empty):
-                    col = makecolor(100, 0, 0)
+                    col = mino_col[ghost]
                 else:
-                    col = makecolor(50, 50, 50)
+                    col = mino_col[empty]
             # echo fmt"Drawing {a}, {b} with {col}, {makerect(b * size + x_offset, a * size + y_offset, size, size)}"
             draw_square(b + v.game_field_board_padding_left, a, col)
 
@@ -90,9 +94,9 @@ proc draw_game(sim: Sim) =
         for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
             for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
                 if mino.rotation_shapes[0].shape[y, x] == 1:
-                    col = makecolor(200, 0, 0)
+                    col = mino_col[mino.pattern]
                 else:
-                    col = makecolor(50, 50, 50)
+                    col = mino_col[empty]
                 draw_square(ui.visuals.game_field_board_padding_left + sim.config.width + 1 + x, a * 5 + y, col)
     
     if sim.state.holding != "-":
@@ -100,9 +104,9 @@ proc draw_game(sim: Sim) =
         for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
             for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
                 if mino.rotation_shapes[0].shape[y, x] == 1:
-                    col = makecolor(200, 0, 0)
+                    col = mino_col[mino.pattern]
                 else:
-                    col = makecolor(50, 50, 50)
+                    col = mino_col[empty]
                 draw_square(x, y, col)
         
 
@@ -137,7 +141,7 @@ proc gameLoop*(sim: var Sim) =
         sim.frame_step(pressed)
 
 
-        ClearBackground(makecolor(0, 0, 30))
+        ClearBackground(makecolor(0, 0, 0))
         BeginDrawing()
         
         case sim.phase:

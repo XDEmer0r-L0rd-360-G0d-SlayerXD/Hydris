@@ -146,7 +146,6 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             sim.reboot_game()
             sim.frame_step(@[])
             tick_action_invalidate_all(sim.events)
-            echo "Died"
             return
 
         while len(sim.state.queue) <= sim.settings.rules.visible_queue_len:
