@@ -19,7 +19,7 @@ type
         config*: Rules
         events*: Event_container
         phase*: Game_phase
-        # history: seq[(string, Tensor[int])]
+        history: seq[Hist_obj]
     Control_settings = object
         das: float  # units should be ms/square
         arr: float
@@ -40,6 +40,10 @@ type
         controls: Control_settings
         play*: Game_Play_settings
         rules*: Other_rules
+    Hist_obj* = object
+        stats: Stats
+        board: Board
+        state: State
         
 
 const all_minos* = [Block.T, Block.I, Block.O, Block.L, Block.J, Block.S, Block.Z]
@@ -111,6 +115,23 @@ proc reboot_game*(sim: var Sim) =
     sim.board = initBoard(sim.config)
     reset_state(sim)
     reset_stats(sim)
+
+
+proc mark_history(sim: var Sim) =
+    var next: Hist_obj
+    next.stats = sim.stats
+    next.board = sim.board.clone
+    next.state = sim.state
+    sim.history.add(next)
+
+
+proc step_back(sim: var Sim) =
+    if len(sim.history) < 1:
+        return
+    let change = sim.history.pop()
+    sim.stats = change.stats
+    sim.board = change.board
+    sim.state = change.state
 
 
 proc frame_step*(sim: var Sim, inputs: seq[Action]) =
@@ -201,6 +222,7 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             of Action.oneeighty:
                 discard do_action(sim.state, sim.board, sim.config, Action.oneeighty)
             of Action.hard_drop:
+                mark_history(sim)
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
             of Action.hard_right:
@@ -220,6 +242,7 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 sim.phase = Game_phase.preview
             of Action.undo:
                 discard do_action(sim.state, sim.board, sim.config, Action.undo)
+                step_back(sim)
             else:
                 echo "missed Action"
     
