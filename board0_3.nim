@@ -68,8 +68,8 @@ type  # consider changing these to ref objects while testing
         phases*: seq[Phase_event]
     Action* = enum
         lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo  # TODO do we need all of these actions
-    Game_phase* = enum
-        dead, preview, play, paused, delay
+    Game_phase* {.pure.}= enum  # dead to delay are not intended to be modified randomly, things will break
+        empty, dead, preview, play, paused, delay, game_over, game_time
     Block* = enum
         empty, garbage, ghost, T, I, O, L, J, Z, S
     Board* = Tensor[Block]
@@ -314,7 +314,7 @@ proc initEmptyMino*: Mino =
 
 proc initAllMinos*(rules: var Rules) =
     # TODO consider making the functional
-    if rules.preset_name == "TETRIO" or rules.preset_name == "MAIN":
+    if rules.preset_name == "TETRIO" or rules.preset_name == "MAIN" or rules.preset_name == "TEC":
         for a in [Block.T, Block.I, Block.O, Block.L, Block.J, Block.S, Block.Z]:
             # echo initMino(rules, a)
             rules.bag_minos[a] = initMino(rules, a)
@@ -542,6 +542,21 @@ proc clear_lines*(board: var Board): int =
         board[0 ..< len(lines), _] = Block.empty
     
     return skips
+
+
+proc insert_garbage(board: var Board, garbage: Tensor[Block]) =
+    for a in 0 ..< board.shape[0] - garbage.shape[0]:
+        board[a, _] = board[a + garbage.shape[0], _]
+    
+    board[^garbage.shape[0]..^1, _] = garbage
+
+
+proc insert_random_garbage*(board: var Board, amount: int) =
+    let col = rand(board.shape[1] - 1)
+    var garbage = newTensor[Block]([amount, board.shape[1]])
+    garbage[_, _] = Block.garbage
+    garbage[_, col] = Block.empty
+    insert_garbage(board, garbage)
 
 
 ### Adds event loop stuff

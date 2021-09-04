@@ -34,6 +34,8 @@ type
         clear_delay*: float
         allow_clutch_clear*: bool
         min_sds*: float
+        min_das*: float
+        min_arr*: float
         gravity_speed*: float
         pregame_time*: float
     Settings* = object
@@ -57,18 +59,33 @@ proc getPresetRules*(name: string): (Rules, Settings) =
     template s: Settings = settings.other_rules  # TODO May not need this
 
     case name:  # FIXME Most of these are unusable due to lazyness
+    # Real field height is wrong for these 
     of "TETRIO":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
         bag_type: "7 bag", kick_table: "SRS+", can_hold: true)
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 5)
+
+        settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "MAIN":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
         bag_type: "7 bag", kick_table: "SRS+", can_hold: true)
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 10)
+        
+        settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
+    of "TEC":
+        config = Rules(preset_name: name, width: 10, height: 21, spawn_x: 4, spawn_y: 20, 
+        bag_type: "7 bag", kick_table: "SRS", can_hold: true)
+
+        settings.rules = Other_rules(visible_height: 20, lock_delay: 500, clear_delay: 250, 
+        allow_clutch_clear: false, min_sds: 0.2, gravity_speed: 1, pregame_time: 3, visible_queue_len: 5)
+        
+        settings.controls = Control_settings(das: 167, arr: 33, sds: 33)
+
+
     # of "MINI TESTING":
     #     config = Rules(preset_name: name, width: 6, visible_height: 6, height: 10, lock_delay: 0.0, 
     #     clear_delay: 0.0, spawn_x: 2, spawn_y: 8, allow_clutch_clear: false, min_sds: 0, 
@@ -87,7 +104,6 @@ proc getPresetRules*(name: string): (Rules, Settings) =
 
     initAllMinos(config)
     settings.play = Game_Play_settings(ghost: true, history_len: 3)
-    settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
 
     return (config, settings)
 
@@ -137,26 +153,57 @@ proc step_back(sim: var Sim) =
 proc frame_step*(sim: var Sim, inputs: seq[Action]) =
     ## This is the main loop of the sim
     
-    # Start the game if nothing is ready
-    if len(sim.events.phases) == 0:
-        sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
-        sim.phase = Game_phase.play
+    # Start the game if nothing is active
+    if sim.phase == Game_phase.empty:
+        sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 300))
+        sim.phase = Game_phase.dead
     
 
     let phase_changes = tick_phase(sim.events)
     if len(phase_changes) > 0:
-        sim.phase = phase_changes[0]
-        case phase_changes[0]:
-        of Game_phase.play:
-                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
-        of Game_phase.dead:
-                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 1000))
-        of Game_phase.preview:
-                sim.events.del_all(Game_phase.play)
-                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: 3000))
-        else:
-            echo "Wierd phase things"
 
+        case sim.phase:
+        of Game_phase.dead:
+            if Game_phase.play in phase_changes:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
+                sim.phase = Game_phase.play
+                sim.events.del_all(Game_phase.game_time)
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.game_time))
+            elif Game_phase.preview in phase_changes:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: 1000))
+                sim.phase = Game_phase.preview
+            else:
+                echo "from dead?"
+        of Game_phase.preview:
+            if Game_phase.play in phase_changes:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
+                sim.events.del_all(Game_phase.game_time)
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.game_time))
+                sim.phase = Game_phase.play
+            else:
+                echo "from preview?"
+        of Game_phase.play:
+            if Game_phase.preview in phase_changes:
+                # Were assuming this means reset
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: 1000))
+                sim.phase = Game_phase.preview
+            elif Game_phase.dead in phase_changes:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 1000))
+                sim.phase = Game_phase.dead
+                echo "we dead"
+            elif Game_phase.delay in phase_changes:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: sim.settings.rules.clear_delay))
+                sim.phase = Game_phase.delay
+                
+            else:
+                echo "from play?"
+        of Game_phase.delay:
+            if Game_phase.play in phase_changes:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.play))
+                sim.phase = Game_phase.play
+        else:
+            echo "unknown phase"
+    
     case sim.phase:
 
     of Game_phase.play:
@@ -177,11 +224,16 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         if sim.state.active.pattern == Block.empty:
             sim.state.set_mino(sim.config, $sim.state.queue[0])
             sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
+        
+
 
         let cleared = sim.board.clear_lines()
         if cleared > 0:
             # echo cleared, " lines cleared"
             sim.stats.lines_cleared += cleared
+            if sim.settings.rules.clear_delay > 0:
+                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
+
         # echo cleared, " lines cleared"  # TODO make this conditional
 
         for a in inputs:
@@ -190,14 +242,17 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 case a:
                 of Action.right, Action.left:
                     movement = Move_type.das
+                    sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
                 of Action.down:
                     movement = Move_type.continuous
+                    sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.sds, das_len: sim.settings.controls.das, movement: movement, action: a))
                 of Action.hard_drop, Action.hard_left, Action.hard_right, Action.clockwise, Action.counter_clockwise, Action.oneeighty, Action.reset, Action.hold, Action.undo:
                     movement = Move_type.single
+                    sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
                 else:
                     movement = Move_type.single
+                    sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
                     echo "Action not set"
-                sim.events.add(Action_event(start_time: getMonoTime(), arr_len: sim.settings.controls.arr, das_len: sim.settings.controls.das, movement: movement, action: a))
 
         let activations = tick_action(sim.events, inputs)
 
@@ -209,7 +264,11 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                     else:
                         discard do_action(sim.state, sim.board, sim.config, Action.left)
             of Action.down:
-                discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
+                if sim.settings.controls.sds == 0:
+                    discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
+                else:
+                    discard do_action(sim.state, sim.board, sim.config, Action.down)
+                    
             of Action.right:
                 if sim.settings.controls.arr == 0 and get_event(sim.events, a).arr_active:
                     discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
@@ -225,8 +284,15 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 mark_history(sim)
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
+                sim.stats.pieces_placed += 1
             of Action.hard_right:
-                discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
+                # FIXME Changed this to test the garbage
+
+                for a in 0 ..< 4:
+                    sim.board.insert_random_garbage(1)
+                # echo sim.board
+
+                # discard do_action(sim.state, sim.board, sim.config, Action.hard_right)
             of Action.hard_left:
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_left)
             of Action.lock:
@@ -249,16 +315,13 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
     of Game_phase.dead:
         return
 
-    of Game_phase.preview:
-        
+    of Game_phase.preview, Game_phase.delay:
         while len(sim.state.queue) <= sim.settings.rules.visible_queue_len:
             # echo sim.state.queue
             sim.state.extend_queue(sim.config)
-        
         if sim.state.active.pattern == Block.empty:
             sim.state.set_mino(sim.config, $sim.state.queue[0])
             sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
-        
         
         for a in inputs:
             if not get_info(sim.events, a):
@@ -280,12 +343,13 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
 
     else:
         echo "Wierd phase things"
+    
 
 
 
 if isMainModule:
     echo "Hello World!"
-    var preset = getPresetRules("MAIN")
+    var preset = getPresetRules("TEC")
     # # echo type(preset[1])
     # quit()
     var sim = initSim(preset[0], preset[1])

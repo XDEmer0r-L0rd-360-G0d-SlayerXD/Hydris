@@ -57,7 +57,7 @@ proc draw_game(sim: Sim) =
 
     let mino_col = {T: makecolor(127, 0, 127), I: makecolor(0, 255, 255), O: makecolor(255, 255, 0), 
     L: makecolor(255, 127, 0), J: makecolor(0, 0, 255), S: makecolor(0, 255, 0), Z: makecolor(255, 0, 0),
-    empty: makecolor(10, 10, 10), ghost: makecolor(50, 50, 50)}.toTable
+    empty: makecolor(10, 10, 10), ghost: makecolor(50, 50, 50), garbage: makecolor(120, 120, 120)}.toTable
 
     proc draw_square(x: int, y: int, col: Color) =
         # This assumes drawing in the game field with a finness of the min size
@@ -66,7 +66,7 @@ proc draw_game(sim: Sim) =
     var ghost_board: Board
     if sim.settings.play.ghost:
         let movement = get_new_location(sim.board, sim.state, Action.hard_drop)
-        let new_loc = test_location(sim.board, sim.state.active, movement[0], movement[1], movement[2])
+        let new_loc = test_location(initBoard(sim.config), sim.state.active, movement[0], movement[1], movement[2])
         ghost_board = new_loc[2]
         
 
@@ -77,7 +77,7 @@ proc draw_game(sim: Sim) =
     for a in 0 ..< sim.config.height:
         for b in 0 ..< sim.config.width:
             case loc[a, b]:
-            of T, I, O, L, J, S, Z:
+            of T, I, O, L, J, S, Z, garbage:
                 col = mino_col[loc[a, b]]
             else:
                 if sim.settings.play.ghost and (ghost_board[a, b] != Block.empty):
@@ -116,7 +116,7 @@ proc gameLoop*(sim: var Sim) =
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris")
     SetTargetFPS(0)
     
-    var preview = true
+    var past: (float, int, float)
     # frame_step(sim, @[])
     while not WindowShouldClose():
         DrawFPS(10, 10)
@@ -146,7 +146,12 @@ proc gameLoop*(sim: var Sim) =
         
         case sim.phase:
         of Game_phase.play:
+            past[0] = 0
             draw_game(sim)
+            let time = sim.events.get_info(Game_phase.play) / 1000
+            DrawText(formatFloat(time, precision = 3) & "s", 100, 250, 50, WHITE)
+            DrawText($sim.stats.pieces_placed, 100, 300, 50, WHITE)
+            DrawText(formatFloat(float(sim.stats.pieces_placed) / time, precision = 3) & " pps", 50, 350, 50, WHITE)
         
         of Game_phase.preview:
             draw_game(sim)
@@ -155,26 +160,38 @@ proc gameLoop*(sim: var Sim) =
                 DrawText(formatFloat(time, precision = 3) & "s", 100, 100, 50, WHITE)
             # echo sim.events.get_event(Game_phase.play)
 
+        of Game_phase.delay:
+            draw_game(sim)
+            DrawText("Clear Delay", 100, 100, 50, WHITE)
 
         else:
             let death_data = sim.events.get_info(Game_phase.preview)
             if death_data > 0:
-                DrawText(formatFloat(death_data / 1000, precision = 3) & "s Until respawn", 100, 100, 50, WHITE)
+                DrawText(formatFloat(death_data / 1000, ffDecimal, 3) & "s Until respawn", 100, 100, 50, WHITE)
+            
+            if past[0] > 0:
+                DrawText(formatFloat(past[0], precision = 3) & "s", 100, 250, 50, WHITE)
+                DrawText($past[1] & "p", 100, 300, 50, WHITE)
+                DrawText(formatFloat(past[2], precision = 3) & " pps", 50, 350, 50, WHITE)
+        
         
 
         EndDrawing()
 
-        DrawText(fmt"{sim.stats.lines_cleared}/8", 30, 500, 30, WHITE)
+        const lines_to_clear = 40
+        DrawText(fmt"{sim.stats.lines_cleared}/{lines_to_clear}", 30, 500, 30, WHITE)
 
-        if sim.stats.lines_cleared >= 8:
+        if sim.stats.lines_cleared >= lines_to_clear:
             echo fmt"Done in {sim.events.get_info(Game_phase.play)/1000}s"
+            past = (sim.events.get_info(Game_phase.play)/1000, sim.stats.pieces_placed, float(sim.stats.pieces_placed) / (sim.events.get_info(Game_phase.play) / 1000))
+            echo past
             sim.events.del_all(Game_phase.play)
-            sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.dead, duration: 0))
+            sim.phase = Game_phase.dead
+            sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 5000))
             sim.reboot_game()
             sim.frame_step(@[])
             tick_action_invalidate_all(sim.events)
 
-    
     CloseWindow()
 
 
