@@ -178,7 +178,7 @@ proc gameLoop*(sim: var Sim) =
 
         EndDrawing()
 
-        const lines_to_clear = 40
+        const lines_to_clear = 150
         DrawText(fmt"{sim.stats.lines_cleared}/{lines_to_clear}", 30, 500, 30, WHITE)
 
         if sim.stats.lines_cleared >= lines_to_clear:

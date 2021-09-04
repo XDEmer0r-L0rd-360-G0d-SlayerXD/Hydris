@@ -180,6 +180,8 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 sim.events.del_all(Game_phase.game_time)
                 sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.game_time))
                 sim.phase = Game_phase.play
+                sim.events.del("garbage")
+                sim.events.add(Custom_event(start_time: getMonoTime(), phase_type: Phase_type.repeating, tag: "garbage", duration: 1000))
             else:
                 echo "from preview?"
         of Game_phase.play:
@@ -233,6 +235,15 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             sim.stats.lines_cleared += cleared
             if sim.settings.rules.clear_delay > 0:
                 sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
+
+        let customs = sim.events.tick_custom()
+        if len(customs) > 0:
+            for a in customs:
+                case a:
+                of "garbage":
+                    sim.board.insert_random_garbage(1)
+                else:
+                    discard
 
         # echo cleared, " lines cleared"  # TODO make this conditional
 

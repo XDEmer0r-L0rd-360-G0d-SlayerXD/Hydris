@@ -59,13 +59,19 @@ type  # consider changing these to ref objects while testing
         phase_type*: Phase_type  # TODO consider adding some kind of id for this, maybe both, events
         phase*: Game_phase
         duration*: float
+    Custom_event* = object
+        start_time*: MonoTime
+        phase_type*: Phase_type
+        tag*: string
+        duration*: Milis
     Move_type* = enum
         single, continuous, das
     Phase_type* = enum
-        stopwatch, timer, 
+        stopwatch, timer, repeating
     Event_container* = object
         actions*: seq[Action_event]
         phases*: seq[Phase_event]
+        customs*: seq[Custom_event]
     Action* = enum
         lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo  # TODO do we need all of these actions
     Game_phase* {.pure.}= enum  # dead to delay are not intended to be modified randomly, things will break
@@ -569,6 +575,10 @@ proc add*(container: var Event_container, phase: Phase_event) =
     container.phases.add(phase)
 
 
+proc add*(container: var Event_container, event: Custom_event) =
+    container.customs.add(event)
+
+
 proc del*(container: var Event_container, action: Action) =  # TODO all things with delete will probably delete wring things if multiple found
 
     template act: seq[Action_event] = container.actions
@@ -586,6 +596,16 @@ proc del*(container: var Event_container, phase: Game_phase) =
     for a in 0 .. act.high:
         if act[a].phase == phase:
             act.del(a)
+            return
+
+
+proc del*(container: var Event_container, tag: string) =  
+
+    template cus: seq[Custom_event] = container.customs
+
+    for a in 0 .. cus.high:
+        if cus[a].tag == tag:
+            cus.del(a)
             return
 
 
@@ -660,6 +680,26 @@ proc tick_phase*(container: var Event_container): seq[Game_phase] =
     return triggered
 
 
+proc tick_custom*(cont: var Event_container): seq[string] =
+
+    template cus: seq[Custom_event] = cont.customs
+
+    var offset = 0
+    for a in 0 .. cus.high:
+        if getMonoTime() - cus[a - offset].start_time > initDuration(milliseconds = toInt(cus[a - offset].duration)):
+            case cus[a - offset].phase_type:
+            of Phase_type.timer:
+                result.add(cus[a - offset].tag)
+                cus.delete(a - offset)
+                offset += 1
+            of Phase_type.repeating:
+                result.add(cus[a - offset].tag)
+                cus[a - offset].start_time = cus[a - offset].start_time + initDuration(milliseconds = toInt(cus[a - offset].duration))
+            else:
+                discard                
+    
+
+
 proc tick_events*(container: var Event_container, actions: seq[Action]): (seq[Action], seq[Game_phase]) =
     let act = tick_action(container, actions)
     let phas = tick_phase(container)
@@ -685,6 +725,16 @@ proc get_info*(container: Event_container, phase: Game_phase): float =
                 return milli_from_duration(diff)
     return 0
 
+
+proc get_info*(cont: Event_container, tag: string): Milis =
+    for a in cont.customs:
+        if a.tag == tag:
+            case a.phase_type:
+            of Phase_type.stopwatch:
+                return milli_from_duration(getMonoTime() - a.start_time)
+            of Phase_type.timer, Phase_type.repeating:
+                return milli_from_duration(a.start_time + initDuration(milliseconds = toInt(a.duration)) - getMonoTime())
+    return 0
 
 proc get_event*(container: Event_container, act: Action): Action_event =
     for a in container.actions:
