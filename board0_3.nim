@@ -112,7 +112,7 @@ let shapes* = {  # (shape that is square, all center cords based on rotation)
     Block.S: ([0, 1, 1, 1, 1, 0, 0, 0, 0].toTensor.reshape(3, 3), @[(1, 1), (1, 1), (1, 1), (1, 1)]),
     Block.Z: ([1, 1, 0, 0, 1, 1, 0, 0, 0].toTensor.reshape(3, 3), @[(1, 1), (1, 1), (1, 1), (1, 1)]),
     Block.I: ([0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0].toTensor.reshape(4, 4), @[(1, 1), (2, 1), (2, 2), (1, 2)]),
-    Block.O: ([1, 1, 1, 1].toTensor.reshape(2, 2), @[(0, 0), (1, 0), (1, 1), (0, 1)]),
+    Block.O: ([1, 1, 1, 1].toTensor.reshape(2, 2), @[(0, 1), (0, 0), (1, 0), (1, 1)]),
     Block.T: ([0, 1, 0, 1, 1, 1, 0, 0, 0].toTensor.reshape(3, 3), @[(1, 1), (1, 1), (1, 1), (1, 1)])
 }.toTable
 
@@ -251,6 +251,11 @@ proc initMino*(rules: Rules, name: Block): Mino =
             else:
                 piece_data.kick_table = kicks["modern_kicks_all"]
                 piece_data.kick_table.merge(kicks["tetrio_180"])
+        of "SRS":
+            if name == Block.I:
+                piece_data.kick_table = kicks["modern_kicks_I"]
+            else:
+                piece_data.kick_table = kicks["modern_kicks_all"]
         else:
             raiseError("Unimplimented kick table")
 
@@ -319,7 +324,7 @@ proc initAllMinos*(rules: var Rules) =
 proc set_mino*(state: var State, rules: Rules, mino: string) =
     state.active = mino_from_str(rules, mino)
     state.active_x = rules.spawn_x
-    state.active_y = rules.spawn_y
+    state.active_y = rules.spawn_y - 1
     state.active_r = 0
 
 
@@ -476,7 +481,7 @@ proc do_action*(s: var State, b: var Board, r: Rules, move: Action): bool =  # T
         s.queue = s.queue[1 .. s.queue.high]
         s.hold_available = true
         s.active_x = r.spawn_x
-        s.active_y = r.spawn_y
+        s.active_y = r.spawn_y - 1
         s.active_r = 0
 
     of Action.hold:
@@ -492,7 +497,7 @@ proc do_action*(s: var State, b: var Board, r: Rules, move: Action): bool =  # T
 
         s.hold_available = false
         s.active_x = r.spawn_x
-        s.active_y = r.spawn_y
+        s.active_y = r.spawn_y - 1
         s.active_r = 0
 
     else:
@@ -513,6 +518,7 @@ proc extend_queue*(s: var State, r: Rules, steps: int = 1) =
                 temp.add(str_from_block(a))
             temp.shuffle()
             s.queue = s.queue & temp.join()
+            # echo r.bag_minos.keys
 
 
 proc clear_lines*(board: var Board): int =
@@ -599,14 +605,16 @@ proc tick_action*(container: var Event_container, actions: seq[Action]): seq[Act
             act[a].first_tap_done = true
             activations.add(act[a].action)
         elif act[a].movement == Move_type.das and not act[a].arr_active and getMonoTime() - act[a].start_time > initDuration(milliseconds = toInt(act[a].das_len)):  # das done
-            act[a].start_time = act[a].start_time - initDuration(milliseconds = toInt(act[a].das_len))  # todo consider moving these to down to when I actually press things. Also these are prob + not -
+            act[a].start_time = act[a].start_time + initDuration(milliseconds = toInt(act[a].das_len))  # todo consider moving these to down to when I actually press things. Also these are prob + not -
             act[a].arr_active = true
             activations.add(act[a].action)
         elif act[a].movement == Move_type.das and act[a].arr_active and getMonoTime() - act[a].start_time > initDuration(milliseconds = toInt(act[a].arr_len)):  # arr done
-            act[a].start_time = act[a].start_time - initDuration(milliseconds = toInt(act[a].arr_len))
+            act[a].start_time = act[a].start_time + initDuration(milliseconds = toInt(act[a].arr_len))
             activations.add(act[a].action)
         elif act[a].movement == Move_type.continuous:
-            activations.add(act[a].action)
+            if act[a].action == Action.down and getMonoTime() - act[a].start_time > initDuration(milliseconds = toInt(act[a].arr_len)):
+                act[a].start_time = act[a].start_time + initDuration(milliseconds = toInt(act[a].arr_len))
+                activations.add(act[a].action)
 
     return activations
 
