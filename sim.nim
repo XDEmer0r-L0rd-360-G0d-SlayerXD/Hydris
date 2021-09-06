@@ -19,7 +19,7 @@ type
         config*: Rules
         events*: Event_container
         phase*: Game_phase
-        history: seq[Hist_obj]
+        history: seq[Hist_obj]  # TODO consider adding an extra log to be able to detect changes and create history
     Control_settings = object
         das: float  # units should be ms/square
         arr: float
@@ -62,7 +62,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
     # Real field height is wrong for these 
     of "TETRIO":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
-        bag_type: "7 bag", kick_table: "SRS+", can_hold: true)
+        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 5)
@@ -70,7 +70,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "MAIN":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
-        bag_type: "7 bag", kick_table: "SRS+", can_hold: true)
+        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "immobile")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 10)
@@ -78,7 +78,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "TEC":
         config = Rules(preset_name: name, width: 10, height: 21, spawn_x: 4, spawn_y: 20, 
-        bag_type: "7 bag", kick_table: "SRS", can_hold: true)
+        bag_type: "7 bag", kick_table: "SRS", can_hold: true, line_clearing_system: "classic")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 500, clear_delay: 250, 
         allow_clutch_clear: false, min_sds: 0.2, gravity_speed: 1, pregame_time: 3, visible_queue_len: 5)
@@ -180,8 +180,6 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 sim.events.del_all(Game_phase.game_time)
                 sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.stopwatch, phase: Game_phase.game_time))
                 sim.phase = Game_phase.play
-                sim.events.del("garbage")
-                sim.events.add(Custom_event(start_time: getMonoTime(), phase_type: Phase_type.repeating, tag: "garbage", duration: 1000))
             else:
                 echo "from preview?"
         of Game_phase.play:
@@ -213,6 +211,7 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         if not death_check[0] or not death_check[1]:
             sim.events.del_all(Game_phase.play)
             sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.dead, duration: 0))
+            echo $sim.stats.lines_cleared & " lines cleared"
             sim.reboot_game()
             sim.frame_step(@[])
             tick_action_invalidate_all(sim.events)
@@ -229,21 +228,12 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         
 
 
-        let cleared = sim.board.clear_lines()
-        if cleared > 0:
-            # echo cleared, " lines cleared"
-            sim.stats.lines_cleared += cleared
-            if sim.settings.rules.clear_delay > 0:
-                sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
-
-        let customs = sim.events.tick_custom()
-        if len(customs) > 0:
-            for a in customs:
-                case a:
-                of "garbage":
-                    sim.board.insert_random_garbage(1)
-                else:
-                    discard
+        # let cleared = sim.board.clear_lines()
+        # if cleared > 0:
+        #     # echo cleared, " lines cleared"
+        #     sim.stats.lines_cleared += cleared
+        #     if sim.settings.rules.clear_delay > 0:
+        #         sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
 
         # echo cleared, " lines cleared"  # TODO make this conditional
 
@@ -294,8 +284,17 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             of Action.hard_drop:
                 mark_history(sim)
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
+                let info = clear_lines(sim.board, sim.state, sim.config)  # TODO add this to the other locking
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
                 sim.stats.pieces_placed += 1
+                if info[0] > 0:
+                    sim.stats.lines_cleared += info[0]
+                    echo info[1]
+                    sim.board = info[2]
+                    if sim.settings.rules.clear_delay > 0:
+                        sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
+
+
             of Action.hard_right:
                 # FIXME Changed this to test the garbage
 

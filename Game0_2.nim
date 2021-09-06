@@ -152,6 +152,22 @@ proc gameLoop*(sim: var Sim) =
             DrawText(formatFloat(time, precision = 3) & "s", 100, 250, 50, WHITE)
             DrawText($sim.stats.pieces_placed, 100, 300, 50, WHITE)
             DrawText(formatFloat(float(sim.stats.pieces_placed) / time, precision = 3) & " pps", 50, 350, 50, WHITE)
+            if sim.events.get_info("garbage") == 0:
+                sim.events.add(Custom_event(start_time: getMonoTime(), phase_type: Phase_type.repeating, tag: "garbage", duration: 1000))
+            
+            let customs = sim.events.tick_custom()
+            if len(customs) > 0:
+                for a in customs:
+                    case a:
+                    of "garbage":
+                        sim.board.insert_random_garbage(1)
+                        let info = test_location(sim.board, sim.state)
+                        if not (info[0] and info[1]):
+                            sim.state.active_y += 1
+                    else:
+                        discard
+
+
         
         of Game_phase.preview:
             draw_game(sim)
@@ -165,6 +181,7 @@ proc gameLoop*(sim: var Sim) =
             DrawText("Clear Delay", 100, 100, 50, WHITE)
 
         else:
+            sim.events.del("garbage")
             let death_data = sim.events.get_info(Game_phase.preview)
             if death_data > 0:
                 DrawText(formatFloat(death_data / 1000, ffDecimal, 3) & "s Until respawn", 100, 100, 50, WHITE)

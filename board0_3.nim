@@ -35,6 +35,7 @@ type  # consider changing these to ref objects while testing
         bag_type*: string  # how the queue is generated
         bag_minos*: Table[Block, Mino]  # TODO May not want to use key and Mino.pattern be the same
         kick_table*: string  # TODO consider changing this to enum
+        line_clearing_system*: string
     State* = object
         active*: Mino  # maybe make this ref?
         active_x*: int
@@ -548,6 +549,49 @@ proc clear_lines*(board: var Board): int =
         board[0 ..< len(lines), _] = Block.empty
     
     return skips
+
+
+proc clear_lines*(board: Board, state: State, rules: Rules): (int, string, Board) =  # (lines cleared, name, new board)
+    ## We assume valid location when tested
+    #  TODO consider naming convention to either be full name or just extra info
+    case rules.line_clearing_system:
+    of "classic":
+        var testing = test_location(board, state)[2]
+        let num = clear_lines(testing)
+        var name: string
+        case num:
+        of 0:
+            name = "nothing"
+        of 1:
+            name = "single"
+        of 2:
+            name = "double"
+        of 3:
+            name = "triple"
+        of 4:
+            name = "quad"
+        else:
+            name = "multi"
+        return (num, name, testing)
+    of "immobile":
+        var testing = test_location(board, state)[2]
+        let num = clear_lines(testing)
+        if num == 0:
+            return (num, "nothing", testing)
+        
+        let north = test_location(board, state.active, state.active_x, state.active_y + 1, state.active_r)
+        let south = test_location(board, state.active, state.active_x, state.active_y - 1, state.active_r)
+        let east = test_location(board, state.active, state.active_x + 1, state.active_y, state.active_r)
+        let west = test_location(board, state.active, state.active_x - 1, state.active_y, state.active_r)
+
+        if (north[0] and north[1]) or (south[0] and south[1]) or (east[0] and east[1]) or (west[0] and west[1]):
+            return (num, "normal", testing)
+        
+        return (num, "spin", testing)
+
+    else:
+        raiseError("Clearing system not found")
+
 
 
 proc insert_garbage(board: var Board, garbage: Tensor[Block]) =
