@@ -121,17 +121,10 @@ proc gameLoop*(sim: var Sim) =
     SetTargetFPS(0)
     
     var past: (float, int, float)
+    var hist_len = len(sim.history)
     # frame_step(sim, @[])
     while not WindowShouldClose():
         DrawFPS(10, 10)
-
-        # if game.state.phase == Game_phase.dead:
-        #     newGame()
-        #     startGame()
-        #     fix_queue()
-        #     invalidate_all_actions()
-        #     preview = true
-        #     echo "RESTARTING"
         
         # if not preview:
         var pressed: seq[Action]
@@ -170,8 +163,14 @@ proc gameLoop*(sim: var Sim) =
                             sim.state.active_y += 1
                     else:
                         discard
-
-
+            
+            if len(sim.history) > hist_len:
+                hist_len = len(sim.history)
+                sim.events.del("latest clear")
+                sim.events.add(Custom_event(start_time: getMonoTime(), phase_type: timer, tag: "latest clear", duration: 1000))
+            
+            if sim.events.get_info("latest clear") > 0:
+                DrawText(sim.history[^1].info, 100, 600, 50, WHITE)
         
         of Game_phase.preview:
             draw_game(sim)
@@ -218,15 +217,10 @@ proc gameLoop*(sim: var Sim) =
 
 proc main =
     
-    var preset = getPresetRules("MAIN")
+    var preset = getPresetRules("TEC")
     var sim = initSim(preset[0], preset[1])
-    reboot_game(sim)
-    # newGame()
-    # set_settings()
     set_ui_settings()
-    # startGame()
-    # fix_queue()
-    gameLoop(sim)
+    gameLoop_Survival(sim)
 
 
 if isMainModule:

@@ -19,7 +19,7 @@ type
         config*: Rules
         events*: Event_container
         phase*: Game_phase
-        history: seq[Hist_obj]  # TODO consider adding an extra log to be able to detect changes and create history
+        history*: seq[Hist_obj]  # TODO consider adding an extra log to be able to detect changes and create history
     Control_settings = object
         das: float  # units should be ms/square
         arr: float
@@ -49,6 +49,10 @@ type
         stats: Stats
         board: Board
         state: State
+        time: MonoTime
+        info*: string
+    Logging_type* = enum
+        none, time_on_move, time_on_lock, full_on_move, full_on_lock
         
 
 const all_minos* = [Block.T, Block.I, Block.O, Block.L, Block.J, Block.S, Block.Z]
@@ -117,8 +121,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
 proc initSim*(r: Rules, s: Settings): Sim =
     
     result = Sim(settings: s, config: r, board: initBoard(r), state: State(active: initEmptyMino()))
-    # echo result.stats, result.settings, result.config, result.events, result.board, result.state
-    # echo result
+    result.reset_state()
 
 
 proc reset_state(sim: var Sim) =
@@ -140,10 +143,20 @@ proc reboot_game*(sim: var Sim) =
 
 
 proc mark_history(sim: var Sim) =
+    # TODO add a check to make sure it saves changes
     var next: Hist_obj
     next.stats = sim.stats
     next.board = sim.board.clone
     next.state = sim.state
+    if sim.history.len() > 0 and sim.history[^1].state == sim.state:  # Only care for unique states (Stops spam from continous movementy types)
+        return
+    sim.history.add(next)
+
+
+proc mark_history(sim: var Sim, info: string) =  # TODO Only two mark types considered. May want to change or just save everything
+    var next: Hist_obj
+    next.info = info
+    next.time = getMonoTime()
     sim.history.add(next)
 
 
@@ -151,6 +164,7 @@ proc step_back(sim: var Sim) =
     if len(sim.history) < 1:
         return
     let change = sim.history.pop()
+    echo len(sim.history)
     sim.stats = change.stats
     sim.board = change.board
     sim.state = change.state
@@ -254,6 +268,15 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         let activations = tick_action(sim.events, inputs)
 
         for a in activations:
+            case sim.settings.rules.hist_logging:
+            of full_on_move:
+                if a != Action.undo:
+                    sim.mark_history()
+            of time_on_move:
+                sim.mark_history($a)
+            else:
+                discard
+
             case a:
             of Action.left:
                     if sim.settings.controls.arr == 0 and get_event(sim.events, a).arr_active:
@@ -278,9 +301,12 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             of Action.oneeighty:
                 discard do_action(sim.state, sim.board, sim.config, Action.oneeighty)
             of Action.hard_drop:
-                mark_history(sim)
+                if sim.settings.rules.hist_logging == full_on_lock:
+                    sim.mark_history()
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
                 let info = clear_lines(sim.board, sim.state, sim.config)  # TODO add this to the other locking
+                if sim.settings.rules.hist_logging == time_on_lock:
+                    sim.mark_history(info[1])
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
                 sim.stats.pieces_placed += 1
                 if info[0] > 0:
@@ -315,7 +341,7 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.play, duration: 1000))
                 sim.phase = Game_phase.preview
             of Action.undo:
-                discard do_action(sim.state, sim.board, sim.config, Action.undo)
+                # discard do_action(sim.state, sim.board, sim.config, Action.undo)
                 step_back(sim)
             else:
                 echo "missed Action"
