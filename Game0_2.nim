@@ -99,12 +99,16 @@ proc draw_game(sim: Sim) =
                     col = mino_col[empty]
                 draw_square(ui.visuals.game_field_board_padding_left + sim.config.width + 1 + x, a * 5 + y, col)
     
+    # Draw hold
     if sim.state.holding != "-":
         mino = mino_from_str(sim.config, sim.state.holding)
         for y in 0 ..< mino.rotation_shapes[0].shape.shape[0]:
             for x in 0 ..< mino.rotation_shapes[0].shape.shape[1]:
                 if mino.rotation_shapes[0].shape[y, x] == 1:
-                    col = mino_col[mino.pattern]
+                    if sim.state.hold_available:
+                        col = mino_col[mino.pattern]
+                    else:
+                        col = mino_col[garbage]
                 else:
                     col = mino_col[empty]
                 draw_square(x, y, col)

@@ -33,11 +33,14 @@ type
         lock_delay*: float
         clear_delay*: float
         allow_clutch_clear*: bool
-        min_sds*: float
+        min_sds*: float  # TODO these settings may not properly interact with custom controls
         min_das*: float
         min_arr*: float
         gravity_speed*: float
         pregame_time*: float
+        hist_logging*: Logging_type
+        use_hold_limit: bool
+
     Settings* = object
         controls: Control_settings
         play*: Game_Play_settings
@@ -65,15 +68,17 @@ proc getPresetRules*(name: string): (Rules, Settings) =
         bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
-        allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 5)
+        allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 5,
+        hist_logging: time_on_lock, use_hold_limit: true)
 
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "MAIN":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
-        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "immobile")
+        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
-        allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 10)
+        allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 10,
+        hist_logging: full_on_lock, use_hold_limit: false)
         
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "TEC":
@@ -81,7 +86,8 @@ proc getPresetRules*(name: string): (Rules, Settings) =
         bag_type: "7 bag", kick_table: "SRS", can_hold: true, line_clearing_system: "classic")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 500, clear_delay: 250, 
-        allow_clutch_clear: false, min_sds: 0.2, gravity_speed: 1, pregame_time: 3, visible_queue_len: 5)
+        allow_clutch_clear: false, min_sds: 0.2, gravity_speed: 1, pregame_time: 3, visible_queue_len: 5,
+        hist_logging: time_on_lock, use_hold_limit: true)
         
         settings.controls = Control_settings(das: 167, arr: 33, sds: 33)
 
@@ -227,16 +233,6 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
         
 
-
-        # let cleared = sim.board.clear_lines()
-        # if cleared > 0:
-        #     # echo cleared, " lines cleared"
-        #     sim.stats.lines_cleared += cleared
-        #     if sim.settings.rules.clear_delay > 0:
-        #         sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
-
-        # echo cleared, " lines cleared"  # TODO make this conditional
-
         for a in inputs:
             if not get_info(sim.events, a):
                 var movement: Move_type
@@ -308,7 +304,9 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             of Action.lock:
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
             of Action.hold:
-                discard do_action(sim.state, sim.board, sim.config, Action.hold)
+                if not sim.settings.rules.use_hold_limit or sim.state.hold_available:
+                    discard do_action(sim.state, sim.board, sim.config, Action.hold)
+                    sim.state.hold_available = false
             of Action.reset:
                 sim.reboot_game()
                 sim.frame_step(@[])

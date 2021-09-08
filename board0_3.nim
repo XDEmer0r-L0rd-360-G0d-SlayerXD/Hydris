@@ -333,6 +333,7 @@ proc set_mino*(state: var State, rules: Rules, mino: string) =
     state.active_x = rules.spawn_x
     state.active_y = rules.spawn_y - 1
     state.active_r = 0
+    state.hold_available = true
 
 
 proc debug_print_board(board: Board) =
