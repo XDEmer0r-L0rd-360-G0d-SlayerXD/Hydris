@@ -7,3 +7,4 @@ Game: Display the game in the sim and handles handles inputs
 
 Training ideas to be explored:
 Best suggested move, finness, bag splits/counting, openings, pc #, survival modes
+Quiz suggested move based on top players replays, 
