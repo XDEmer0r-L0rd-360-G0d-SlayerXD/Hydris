@@ -140,7 +140,7 @@ proc rotate_tensor(ten: var Tensor, rotations: int = 1) =
         rotate_tensor(ten, extra)  # Technically recursive but should never be more than 3
 
 
-proc raiseError(msg: string) =
+proc raiseError*(msg: string) =
     ## Probably unneeded, but it works
     var e: ref ValueError
     new(e)

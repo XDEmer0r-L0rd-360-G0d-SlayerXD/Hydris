@@ -231,7 +231,6 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         if not death_check[0] or not death_check[1]:
             sim.events.del_all(Game_phase.play)
             sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.dead, duration: 0))
-            echo $sim.stats.lines_cleared & " lines cleared"
             sim.reboot_game()
             sim.frame_step(@[])
             tick_action_invalidate_all(sim.events)
@@ -311,7 +310,7 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 sim.stats.pieces_placed += 1
                 if info[0] > 0:
                     sim.stats.lines_cleared += info[0]
-                    echo info[1]
+                    # echo info[1]
                     sim.board = info[2]
                     if sim.settings.rules.clear_delay > 0:
                         sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.delay, duration: 0))
