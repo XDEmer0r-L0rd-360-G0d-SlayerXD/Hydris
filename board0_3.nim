@@ -207,7 +207,7 @@ func mino_from_str*(r: Rules, s: string): Mino =
         return r.bag_minos[Z]
 
 
-func str_from_block(b: Block): string =
+func str_from_block*(b: Block): string =
     case b
     of T:
         return "T"
@@ -333,6 +333,23 @@ proc initAllMinos*(rules: var Rules) =
     # echo rules
 
 
+proc initState*: State =
+    return State(active: initEmptyMino())
+
+
+proc clone*(s: State, r: Rules): State =
+    result = initState()
+    result.active = mino_from_str(r, $s.active.pattern)
+    result.active_x = s.active_x
+    result.active_y = s.active_y
+    result.active_r = s.active_r
+    result.holding = s.holding
+    result.hold_available = s.hold_available
+    result.queue = s.queue
+    result.combo = s.combo
+    result.back_to_back = s.back_to_back
+
+
 proc set_mino*(state: var State, rules: Rules, mino: string) =
     state.active = mino_from_str(rules, mino)
     state.active_x = rules.spawn_x
@@ -341,7 +358,7 @@ proc set_mino*(state: var State, rules: Rules, mino: string) =
     state.hold_available = true
 
 
-proc debug_print_board(board: Board) =
+proc debug_print_board*(board: Board) =
     var line: seq[int]
     for a in 0 ..< board.shape[0]:
         line.setLen(0)
@@ -416,6 +433,7 @@ proc get_new_location*(b: Board, s: State, a: Action): array[3, int] =
     of Action.max_left:
         return [s.active.rotation_shapes[s.active_r].x_min, s.active_y, s.active_r]
     of Action.hard_drop:  # TODO conisder a hard_up
+        # This should always return a valid location
         var movement = get_new_location(b, s, Action.max_down)
         var offset = 0
         var new_loc: (bool, bool, Board)
@@ -490,8 +508,11 @@ proc do_action*(s: var State, b: var Board, r: Rules, move: Action): bool =  # T
         if not new_loc[0] or not new_loc[1]:
             return false
         b = new_loc[2]
-        s.active = mino_from_str(r, $s.queue[0])
-        s.queue = s.queue[1 .. s.queue.high]
+        if s.queue.len() > 0:
+            s.active = mino_from_str(r, $s.queue[0])
+            s.queue = s.queue[1 .. s.queue.high]
+        else:
+            s.active = initEmptyMino()
         s.hold_available = true
         s.active_x = r.spawn_x
         s.active_y = r.spawn_y - 1
@@ -714,6 +735,13 @@ proc insert_random_garbage*(board: var Board, amount: int) =
     garbage[_, _] = Block.garbage
     garbage[_, col] = Block.empty
     insert_garbage(board, garbage)
+
+
+proc drain_board*(board: var Board, ammount: int) =
+    # echo board[_ .. board.shape[0] - 1 - ammount, _]
+    let temp = board[_ .. board.shape[0] - 1 - ammount, _]
+    board[ammount .. _, _] = temp.clone()
+    board[_ .. ammount, _] = Block.empty
 
 
 ### Adds event loop stuff

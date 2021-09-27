@@ -48,10 +48,10 @@ type
         play*: Game_Play_settings
         rules*: Other_rules
     Hist_obj* = object
-        stats: Stats
-        board: Board
-        state: State
-        time: MonoTime
+        stats*: Stats
+        board*: Board
+        state*: State
+        time*: MonoTime
         info*: string
     Logging_type* = enum
         none, time_on_move, time_on_lock, full_on_move, full_on_lock
@@ -148,7 +148,7 @@ proc reboot_game*(sim: var Sim) =
     reset_stats(sim)
 
 
-proc mark_history(sim: var Sim) =
+proc mark_history*(sim: var Sim) =
     # TODO add a check to make sure it saves changes
     var next: Hist_obj
     next.stats = sim.stats
@@ -158,8 +158,7 @@ proc mark_history(sim: var Sim) =
         return
     sim.history.add(next)
 
-
-proc mark_history(sim: var Sim, info: string) =  # TODO Only two mark types considered. May want to change or just save everything
+proc mark_history*(sim: var Sim, info: string) =  # TODO Only two mark types considered. May want to change or just save everything
     var next: Hist_obj
     next.info = info
     next.time = getMonoTime()
