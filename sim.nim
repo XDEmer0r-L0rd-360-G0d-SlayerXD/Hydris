@@ -1,6 +1,7 @@
 {.experimental: "codeReordering".}
 import arraymancer, Board0_3, std/monotimes, tables
 
+# TODO try to make spacing nicer
 # Anything time related should try to stay in ms
 
 type
@@ -11,6 +12,7 @@ type
         pieces_placed*: int
         score*: int
         lines_sent*: int
+        level*: int
     Sim* = object  # TODO may want to get rid of this construct as well
         stats*: Stats  # TODO consider putting stats in state object
         settings*: Settings
@@ -69,7 +71,8 @@ proc getPresetRules*(name: string): (Rules, Settings) =
     # Real field height is wrong for these 
     of "TETRIO":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
-        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic")
+        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic",
+        scoring_system: "guideline")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 5,
@@ -78,7 +81,8 @@ proc getPresetRules*(name: string): (Rules, Settings) =
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "MAIN":
         config = Rules(preset_name: name, width: 10, height: 24, spawn_x: 4, spawn_y: 21, 
-        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic")
+        bag_type: "7 bag", kick_table: "SRS+", can_hold: true, line_clearing_system: "classic",
+        scoring_system: "guideline")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 10,
@@ -87,7 +91,8 @@ proc getPresetRules*(name: string): (Rules, Settings) =
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "TEC":
         config = Rules(preset_name: name, width: 10, height: 21, spawn_x: 4, spawn_y: 20, 
-        bag_type: "7 bag", kick_table: "SRS", can_hold: true, line_clearing_system: "classic")
+        bag_type: "7 bag", kick_table: "SRS", can_hold: true, line_clearing_system: "classic",
+        scoring_system: "guideline")
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 500, clear_delay: 250, 
         allow_clutch_clear: false, min_sds: 0.2, gravity_speed: 1, pregame_time: 3, visible_queue_len: 5,
@@ -131,7 +136,8 @@ proc reset_state(sim: var Sim) =
 
 
 proc reset_stats(sim: var Sim) =
-    sim.stats = Stats()
+    # TODO put level declaration in a better spot
+    sim.stats = Stats(level: 1)
 
 
 proc reboot_game*(sim: var Sim) =
@@ -283,9 +289,12 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                     else:
                         discard do_action(sim.state, sim.board, sim.config, Action.left)
             of Action.down:
+                let change = calc_drop_score(sim.config, sim.board, sim.state, Action.down, sim.stats.level)
                 if sim.settings.controls.sds == 0:
+                    sim.stats.score += change * (sim.state.active_y - get_new_location(sim.board, sim.state, Action.hard_drop)[1])
                     discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
                 else:
+                    sim.stats.score += change
                     discard do_action(sim.state, sim.board, sim.config, Action.down)
                     
             of Action.right:
@@ -300,12 +309,15 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
             of Action.oneeighty:
                 discard do_action(sim.state, sim.board, sim.config, Action.oneeighty)
             of Action.hard_drop:
+                # FIXME all this checking and moving of info (that is hard to reach is bad)
                 if sim.settings.rules.hist_logging == full_on_lock:
                     sim.mark_history()
+                let drop = calc_drop_score(sim.config, sim.board, sim.state, Action.hard_drop, sim.stats.level)  # TODO introduce level into calculation and for the line below
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
                 let info = clear_lines(sim.board, sim.state, sim.config)  # TODO add this to the other locking
                 if sim.settings.rules.hist_logging == time_on_lock:
-                    sim.mark_history(info[1])
+                    sim.mark_history($info[1])  # FIXME This is a temporary work around 
+                sim.stats.score += calc_score(sim.config, info[0], info[1]) + drop
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
                 sim.stats.pieces_placed += 1
                 if info[0] > 0:
