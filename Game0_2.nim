@@ -73,7 +73,6 @@ proc draw_game(sim: Sim) =
 
     # Draw the game board
     let loc = test_location(sim.board, sim.state.active, sim.state.active_x, sim.state.active_y, sim.state.active_r)[2]
-    var val: Block
     var col: Color
     for a in 0 ..< sim.config.height:
         for b in 0 ..< sim.config.width:
@@ -126,6 +125,7 @@ proc gameLoop_Survival(sim: var Sim) =
     
     var past: (float, int, float)  # TODO change this to usefull survival stats
     var hist_len = len(sim.history)
+    var pause_overwritten = false
     while not WindowShouldClose():
         DrawFPS(10, 10)
         
@@ -148,7 +148,8 @@ proc gameLoop_Survival(sim: var Sim) =
         
         case sim.phase:
         of Game_phase.play:
-            past[0] = 0
+            pause_overwritten = false
+            past = (sim.events.get_info(Game_phase.game_time)/1000, sim.stats.pieces_placed, float(sim.stats.pieces_placed) / (sim.events.get_info(Game_phase.game_time) / 1000))
             draw_game(sim)
             let time = sim.events.get_info(Game_phase.play) / 1000
             DrawText(formatFloat(time, precision = 3) & "s", 100, 250, 50, WHITE)
@@ -193,9 +194,9 @@ proc gameLoop_Survival(sim: var Sim) =
             if death_data > 0:
                 DrawText(formatFloat(death_data / 1000, ffDecimal, 3) & "s Until respawn", 100, 100, 50, WHITE)
             
-            if past[0] == 0 and sim.history.len() > 1:
-                past[0] = sim.events.get_info(Game_phase.game_time)/1000
-                sim.events.del(Game_phase.preview)
+            if not pause_overwritten and sim.history.len() > 1:
+                pause_overwritten = true
+                sim.events.del(Game_phase.preview)  # Override default death timer to extend it
                 sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 10000))
             
             if past[0] > 0:
@@ -297,7 +298,7 @@ proc gameLoop_Sprint(sim: var Sim) =
 
         EndDrawing()
 
-        const lines_to_clear = 40
+        const lines_to_clear = 4
         DrawText(fmt"{sim.stats.lines_cleared}/{lines_to_clear}", 30, 500, 30, WHITE)
 
         if sim.stats.lines_cleared >= lines_to_clear:
@@ -319,7 +320,6 @@ proc gameLoop_Cheese(sim: var Sim) =
     SetTargetFPS(0)
     
     var past: (float, int, float)
-    var hist_len = len(sim.history)
     const start_lines = 10
     var cheese_lines = start_lines
     # frame_step(sim, @[])
@@ -399,11 +399,89 @@ proc gameLoop_Cheese(sim: var Sim) =
     CloseWindow()
 
 
+proc gameLoop_Ultra(sim: var Sim) =
+    
+    InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris - Ultra")
+    SetTargetFPS(0)
+    
+    var past: int
+    # frame_step(sim, @[])
+    while not WindowShouldClose():
+        DrawFPS(10, 10)
+        
+        # if not preview:
+        var pressed: seq[Action]
+        # get keybinds
+        for a in ui.controls.keybinds.keys():
+            if IsKeyDown(a):
+                # if ui.controls.keybinds[a] == Action.undo:
+                #     continue
+                pressed.add(ui.controls.keybinds[a])
+        
+
+        # Update game
+        sim.frame_step(pressed)
+
+
+        ClearBackground(makecolor(0, 0, 0))
+        BeginDrawing()
+        
+        
+        case sim.phase:
+        of Game_phase.play:
+            past = 0
+            draw_game(sim)
+            let time = sim.events.get_info(Game_phase.game_time) / 1000
+            DrawText(formatFloat(time, precision = 3) & "s", 100, 250, 50, WHITE)
+            DrawText($sim.stats.pieces_placed, 100, 300, 50, WHITE)
+            DrawText(formatFloat(float(sim.stats.pieces_placed) / time, precision = 3) & " pps", 50, 350, 50, WHITE)
+            DrawText($sim.stats.score, 100, 400, 50, WHITE)
+            
+        
+        of Game_phase.preview:
+            draw_game(sim)
+            let time = sim.events.get_info(Game_phase.play) / 1000
+            if time > 0:
+                DrawText(formatFloat(time, precision = 3) & "s", 100, 100, 50, WHITE)
+            # echo sim.events.get_event(Game_phase.play)
+
+        of Game_phase.delay:
+            draw_game(sim)
+            DrawText("Clear Delay", 100, 100, 50, WHITE)
+
+        of Game_phase.dead:
+            let death_data = sim.events.get_info(Game_phase.preview)
+            if death_data > 0:
+                DrawText(formatFloat(death_data / 1000, ffDecimal, 3) & "s Until respawn", 100, 100, 50, WHITE)
+
+            DrawText($past, 100, 250, 50, WHITE)
+            
+        else:
+            raiseError(fmt"We're in the {sim.phase} phase")
+        
+        
+
+        EndDrawing()
+
+
+        if sim.events.get_info(Game_phase.game_time) > 10000:
+            sim.events.del(Game_phase.game_time)
+            echo fmt"Done in {sim.events.get_info(Game_phase.game_time)/1000}s"
+            past = sim.stats.score
+            sim.events.del_all(Game_phase.play)
+            sim.phase = Game_phase.dead
+            sim.events.add(Phase_event(start_time: getMonoTime(), phase_type: Phase_type.timer, phase: Game_phase.preview, duration: 5000))
+            sim.reboot_game()
+            tick_action_invalidate_all(sim.events)
+
+    CloseWindow()
+
+
 
 proc main =
-    # randomize()
-    const mode = "sprint"
-    var preset = getPresetRules("TEC")
+    randomize()
+    const mode = "ultra"
+    var preset = getPresetRules("MAIN")
     var sim = initSim(preset[0], preset[1])
     set_ui_settings()
     case mode:
@@ -413,6 +491,8 @@ proc main =
         gameLoop_Sprint(sim)
     of "cheese":
         gameLoop_Cheese(sim)
+    of "ultra":
+        gameLoop_Ultra(sim)
 
 
 if isMainModule:
