@@ -36,6 +36,7 @@ type  # consider changing these to ref objects while testing
         bag_minos*: Table[Block, Mino]  # TODO May not want to use key and Mino.pattern be the same
         kick_table*: string  # TODO consider changing this to enum
         line_clearing_system*: string
+        scoring_system*: string
     State* = object
         active*: Mino  # maybe make this ref?
         active_x*: int
@@ -44,6 +45,8 @@ type  # consider changing these to ref objects while testing
         holding*: string
         hold_available*: bool
         queue*: string
+        combo*: int
+        back_to_back*: bool  # TODO Probably change this to an int
     Milis = float  # TODO try to propigate this more
     Action_event* = object
         start_time*: MonoTime
@@ -80,6 +83,8 @@ type  # consider changing these to ref objects while testing
     Block* = enum
         empty, garbage, ghost, T, I, O, L, J, Z, S
     Board* = Tensor[Block]
+    Clear_type* = enum
+        nothing, normal, spin, mini, pc
 
 
 
@@ -552,33 +557,24 @@ proc clear_lines*(board: var Board): int =
     return skips
 
 
-proc clear_lines*(board: Board, state: State, rules: Rules): (int, string, Board) =  # (lines cleared, name, new board)
+proc clear_lines*(board: Board, state: State, rules: Rules): (int, Clear_type, Board) =  # (lines cleared, name, new board)
     ## We assume valid location when tested
     #  TODO consider naming convention to either be full name or just extra info
     case rules.line_clearing_system:
     of "classic":
         var testing = test_location(board, state)[2]
         let num = clear_lines(testing)
-        var name: string
         case num:
         of 0:
-            name = "nothing"
-        of 1:
-            name = "single"
-        of 2:
-            name = "double"
-        of 3:
-            name = "triple"
-        of 4:
-            name = "quad"
+            return (0, Clear_type.nothing, testing)
         else:
-            name = "multi"
-        return (num, name, testing)
+            return (num, Clear_type.normal, testing)
+
     of "immobile":
         var testing = test_location(board, state)[2]
         let num = clear_lines(testing)
         if num == 0:
-            return (num, "nothing", testing)
+            return (num, Clear_type.nothing, testing)
         
         let north = test_location(board, state.active, state.active_x, state.active_y + 1, state.active_r)
         let south = test_location(board, state.active, state.active_x, state.active_y - 1, state.active_r)
@@ -586,12 +582,122 @@ proc clear_lines*(board: Board, state: State, rules: Rules): (int, string, Board
         let west = test_location(board, state.active, state.active_x - 1, state.active_y, state.active_r)
 
         if (north[0] and north[1]) or (south[0] and south[1]) or (east[0] and east[1]) or (west[0] and west[1]):
-            return (num, "normal", testing)
+            return (num, Clear_type.normal, testing)
         
-        return (num, "spin", testing)
+        # Test for PC
+        var pc = true
+        for a in 0 ..< rules.width:
+            if board[rules.height - 1, a] != Block.empty:
+                pc = false
+
+        if pc:
+            return (num, Clear_type.pc, testing)
+
+        return (num, Clear_type.spin, testing)
 
     else:
         raiseError("Clearing system not found")
+
+
+proc calc_score*(rules: Rules, lines: int, clear_type: Clear_type, level: int = 1, back_to_back: bool = false, combo: int = 0): int =
+    ## Calculates most clear scores for games.
+    ## TODO Misses things like soft drops
+    ## TODO Missing other games as well (such as sega)
+    case rules.scoring_system:
+    of "classic":
+        case lines:
+        of 1:
+            return 40 * (level + 1)
+        of 2:
+            return 100 * (level + 1)
+        of 3:
+            return 300 * (level + 1)
+        of 4:
+            return 1200 * (level + 1)
+        else:
+            return 0
+    
+    of "guideline":
+        var score = 0
+        case clear_type:
+        of Clear_type.normal:
+            case lines:
+            of 1:
+                score = 100 * level
+            of 2:
+                score = 300 * level
+            of 3:
+                score = 500 * level
+            of 4:
+                score = 800 * level
+            else:
+                score = 0
+        of Clear_type.spin:
+            case lines:
+            of 0:
+                score = 400 * level
+            of 1:
+                score = 800 * level
+            of 2:
+                score = 1200 * level
+            of 3:
+                score = 1600 * level
+            else:
+                score = 0
+        of Clear_type.mini:
+            case lines:
+            of 0:
+                score = 100 * level
+            of 1:
+                score = 200 * level
+            of 2:
+                score = 400 * level
+            else:
+                score = 0
+        of Clear_type.pc:
+            case lines:
+            of 1:
+                score = 800 * level
+            of 2:
+                score = 1200 * level
+            of 3:
+                score = 1800 * level
+            of 4:
+                score = 2000 * level
+            else:
+                score = 0
+        
+        else:
+            score = 0
+
+        if back_to_back and ((clear_type == Clear_type.normal and lines == 4) or ((clear_type == Clear_type.spin or clear_type == Clear_type.mini) and lines > 0)):
+            score = int(score * 3 / 2)  # FIXME Make sure this is calculated properly
+        
+        if combo > 0:
+            score += 50 * combo * level
+        
+        return score
+
+
+proc calc_drop_score*(rules: Rules, board: Board, state: State, action: Action, level: int = 1): int =
+    case rules.scoring_system:
+    of "guideline", "classic":
+        case action:
+        of Action.down:
+            let test = test_location(board, state.active, state.active_x, state.active_y - 1, state.active_r)
+            if test[0] and test[1]:
+                return 1
+        of Action.hard_drop:
+            let loc = get_new_location(board, state, Action.hard_drop)
+            if loc[1] <= state.active_y:
+                return 2 * (state.active_y - loc[1])
+            else:
+                return 0
+        else:
+            return 0
+    else:
+        return 0
+
 
 
 
