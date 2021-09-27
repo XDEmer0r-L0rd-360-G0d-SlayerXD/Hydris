@@ -6,5 +6,5 @@ Sim: Game is played here with all of its calculations. GUI system must requests 
 Game: Display the game in the sim and handles handles inputs
 
 Training ideas to be explored:
-Best suggested move, finness, bag splits/counting, openings, pc #, survival modes
-Quiz suggested move based on top players replays, 
+Best suggested move, finness, bag splits/counting, openings, pc #, survival modes, das callibration
+Quiz suggested move based on top players replays, something to help stop misdrops(probably finness)
