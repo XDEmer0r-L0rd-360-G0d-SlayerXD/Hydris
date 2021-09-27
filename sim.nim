@@ -23,9 +23,9 @@ type
         phase*: Game_phase
         history*: seq[Hist_obj]  # TODO consider adding an extra log to be able to detect changes and create history
     Control_settings = object
-        das: float  # units should be ms/square
-        arr: float
-        sds: float  # TODO need to chose between ms/down or down/ms. Is d/ms rn
+        das*: float  # units should be ms/square
+        arr*: float
+        sds*: float  # TODO need to chose between ms/down or down/ms. Is d/ms rn
     Game_Play_settings = object
         ghost*: bool
         history_len: int
@@ -44,7 +44,7 @@ type
         use_hold_limit: bool
 
     Settings* = object
-        controls: Control_settings
+        controls*: Control_settings
         play*: Game_Play_settings
         rules*: Other_rules
     Hist_obj* = object
