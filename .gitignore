@@ -11,3 +11,5 @@ raymath.nim
 rayutils.nim
 rlgl.nim
 Engine0_2.nim
+build/
+settings.dat

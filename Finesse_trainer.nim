@@ -1,7 +1,7 @@
 import sim, Board0_3
 import counter
 import raylib, rayutils
-import tables, arraymancer, std/monotimes, marshal, strutils, random
+import tables, arraymancer, std/monotimes, strutils, random, streams, yaml/serialization
 
 
 type
@@ -22,6 +22,9 @@ type
         visuals: Visual_settings
         controls: Control_settings
         play: Game_Play_settings
+    Saved_controls = object
+        das: float
+        keybinds: Table[KeyboardKey, Action]
 
 var ui*: Settings
 
@@ -69,7 +72,7 @@ proc `==`(x: Board, y: Board): bool =
     return true
 
 
-proc set_ui_settings() =
+proc set_default_ui_settings() =
     # Todo check for file later. I'll just use defaults for now.
     ui.visuals.game_field_offset_left = 0.1
     ui.visuals.game_field_offset_top = 0.1
@@ -79,9 +82,27 @@ proc set_ui_settings() =
     ui.visuals.window_width = 800
     # only debug hard_left, hard_right, and lock left in
     ui.controls.keybinds = {KEY_J: Action.left, KEY_K: Action.down, KEY_L: Action.right, 
-    KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_SPACE: Action.hard_drop,
-    KEY_R: Action.reset, KEY_S: Action.oneeighty}.toTable()
+    KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_SPACE: Action.hard_drop, KEY_S: Action.oneeighty}.toTable()
     ui.play.restart_on_death = true
+
+
+proc load_custom_settings(sim: var Sim) =
+    if not FileExists("settings.dat"):
+        var filest = newFileStream("settings.dat", fmWrite)
+        var temp = Saved_controls()
+        temp.das = 70
+        temp.keybinds = {KEY_J: Action.left, KEY_K: Action.down, KEY_L: Action.right, 
+            KEY_D: Action.counter_clockwise, KEY_F: Action.clockwise, KEY_SPACE: Action.hard_drop, KEY_S: Action.oneeighty}.toTable()
+        dump(temp, filest)
+        filest.close()
+    
+    var file_read = newFileStream("settings.dat", fmRead)
+    var loaded: Saved_controls
+    load(file_read, loaded)
+    file_read.close()
+    sim.settings.controls.das = loaded.das
+    ui.controls.keybinds = loaded.keybinds
+    echo "loaded settings"
 
 
 proc draw_game(sim: Sim, shadow: Board) =
@@ -147,12 +168,12 @@ proc draw_game(sim: Sim, shadow: Board) =
 
 proc main() =
     var preset = getPresetRules("MAIN")
-    set_ui_settings()
+    set_default_ui_settings()
     var sim = initSim(preset[0], preset[1])
+    sim.load_custom_settings()
     sim.settings.rules.visible_queue_len = 1
     sim.settings.rules.hist_logging = Logging_type.full_on_move
     sim.state.set_mino(sim.config, "L")
-    sim.mark_history("start")
     var shadow_board = initBoard(sim.config)
     var target_path: seq[int]  # active_x found via history
     var final_rotation: int  # active_r 
@@ -161,7 +182,7 @@ proc main() =
 
 
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris - Finesse Trainer")
-    SetTargetFPS(60)
+    SetTargetFPS(500)
 
     while not WindowShouldClose():
 
@@ -206,7 +227,6 @@ proc main() =
                     movement_order.add(hard_right)
                 else:
                     movement_order.add(a)
-                # echo a
             echo movement_order
 
             for a in movement_order:
@@ -216,20 +236,16 @@ proc main() =
             final_rotation = temp_state.active_r
             discard do_action(temp_state, shadow_board, sim.config, Action.hard_drop)            
             discard do_action(temp_state, shadow_board, sim.config, Action.lock)
-            # echo target_path
-            # echo final_rotation
 
         if sim.history.len > 0 and sim.history[^1].board != sim.board and not counter_single.check("board change"):
-            block:
-                if sim.history.len() <= 1 and sim.history[0].state.active_x == 0:
+            block:  # TODO check if we still need this now that the start history mark has been removed
+                if sim.history.len() == 1 and sim.history[0].state.active_x == 0:
+                    sim.history.delete(0)
                     break
                 counter_single.inc("board change")
                 var comparison: seq[int]
                 for a in sim.history:
                     comparison.add(a.state.active_x)
-                if comparison[0] == 0:
-                    comparison.delete(0)
-                echo sim.history[^1].state.active_r
                 if comparison == target_path and sim.history[^1].state.active_r == final_rotation:
                     background = DARKGREEN
                     counter_single.clear()
