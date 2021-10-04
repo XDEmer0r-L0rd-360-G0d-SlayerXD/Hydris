@@ -176,6 +176,7 @@ proc main() =
     sim.state.set_mino(sim.config, "L")
     var shadow_board = initBoard(sim.config)
     var target_path: seq[int]  # active_x found via history
+    var target_path_double: seq[int]  # For double right/left instead of 180
     var final_rotation: int  # active_r 
     var chosen_pattern: string = "L12"
     var background = DARKGREEN
@@ -231,8 +232,12 @@ proc main() =
 
             for a in movement_order:
                 target_path.add(temp_state.active_x)
+                target_path_double.add(temp_state.active_x)
+                if a == oneeighty:
+                    target_path_double.add(temp_state.active_x)
                 discard do_action(temp_state, shadow_board, sim.config, a)
             target_path.add(temp_state.active_x)
+            target_path_double.add(temp_state.active_x)
             final_rotation = temp_state.active_r
             discard do_action(temp_state, shadow_board, sim.config, Action.hard_drop)            
             discard do_action(temp_state, shadow_board, sim.config, Action.lock)
@@ -246,7 +251,7 @@ proc main() =
                 var comparison: seq[int]
                 for a in sim.history:
                     comparison.add(a.state.active_x)
-                if comparison == target_path and sim.history[^1].state.active_r == final_rotation:
+                if (comparison == target_path or comparison == target_path_double) and sim.history[^1].state.active_r == final_rotation:
                     background = DARKGREEN
                     counter_single.clear()
                     sim.history = @[]
@@ -259,6 +264,7 @@ proc main() =
                     counter_single.clear()
                     counter_single.inc("chose pattern")
                 target_path = @[]
+                target_path_double = @[]
                 counter_multi.clear()
 
 
