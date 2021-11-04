@@ -77,7 +77,7 @@ type  # consider changing these to ref objects while testing
         phases*: seq[Phase_event]
         customs*: seq[Custom_event]
     Action* = enum
-        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo  # TODO do we need all of these actions
+        lock, up, right, down, left, counter_clockwise, clockwise, hard_drop, hard_right, hard_left, hold, max_down, max_right, max_left, soft_drop, reset, oneeighty, undo, spawn  # TODO do we need all of these actions
     Game_phase* {.pure.}= enum  # dead to delay are not intended to be modified randomly, things will break
         empty, dead, preview, play, paused, delay, game_over, game_time
     Block* = enum

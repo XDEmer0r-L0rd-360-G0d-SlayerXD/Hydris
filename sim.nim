@@ -23,11 +23,22 @@ type
         config*: Rules
         events*: Event_container
         phase*: Game_phase
-        history*: seq[Hist_obj]  # TODO consider adding an extra log to be able to detect changes and create history
+        history_state*: seq[Hist_obj_state]
+        history_info*: seq[Hist_obj_info]
     Control_settings = object
         das*: float  # units should be ms/square
         arr*: float
         sds*: float  # TODO need to chose between ms/down or down/ms. Is d/ms rn
+    Logging_flags* {.size: sizeof(cint).}= enum  # cannot compress when logging only time
+        time, state, lock, compression  # Save timestamp, save state, only on lock or every move, attempt compression to trim unneeded moves
+    Logging_settings* = set[Logging_flags]  # nim's implimentation of bit fields
+    Hist_obj_state* = object
+        stats*: Stats
+        board*: Board
+        state*: State
+    Hist_obj_info* = object
+        time*: MonoTime
+        info*: string
     Game_Play_settings = object
         ghost*: bool
         history_len: int
@@ -42,24 +53,22 @@ type
         min_arr*: float
         gravity_speed*: float
         pregame_time*: float
-        hist_logging*: Logging_type
+        hist_logging*: Logging_settings
         use_hold_limit: bool
 
     Settings* = object
         controls*: Control_settings
         play*: Game_Play_settings
         rules*: Other_rules
-    Hist_obj* = object
-        stats*: Stats
-        board*: Board
-        state*: State
-        time*: MonoTime
-        info*: string
-    Logging_type* = enum
-        none, time_on_move, time_on_lock, full_on_move, full_on_lock
         
 
 const all_minos* = [Block.T, Block.I, Block.O, Block.L, Block.J, Block.S, Block.Z]
+    
+let all_actions_as_strings* = block:
+    var temp: seq[string]
+    for a in Action:
+        temp.add($a)    
+    temp
 
 
 # Use a names such as tetrio to preset rules object to have desired settings
@@ -78,7 +87,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 5,
-        hist_logging: time_on_lock, use_hold_limit: true)
+        hist_logging: {time, lock, compression}, use_hold_limit: true)
 
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "MAIN":
@@ -88,7 +97,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 0.0, clear_delay: 0.0, 
         allow_clutch_clear: true, min_sds: 0, gravity_speed: 0, pregame_time: 3, visible_queue_len: 10,
-        hist_logging: full_on_lock, use_hold_limit: false)
+        hist_logging: {time, state, lock, compression}, use_hold_limit: false)
         
         settings.controls = Control_settings(das: 70, arr: 0, sds: 0)
     of "TEC":
@@ -98,7 +107,7 @@ proc getPresetRules*(name: string): (Rules, Settings) =
 
         settings.rules = Other_rules(visible_height: 20, lock_delay: 500, clear_delay: 250, 
         allow_clutch_clear: false, min_sds: 0.2, gravity_speed: 1, pregame_time: 3, visible_queue_len: 5,
-        hist_logging: time_on_lock, use_hold_limit: true)
+        hist_logging: {time, lock}, use_hold_limit: true)
         
         settings.controls = Control_settings(das: 167, arr: 33, sds: 33)
 
@@ -150,31 +159,96 @@ proc reboot_game*(sim: var Sim) =
     reset_stats(sim)
 
 
-proc mark_history*(sim: var Sim) =
+proc mark_history_state*(sim: var Sim) =
     # TODO add a check to make sure it saves changes
-    var next: Hist_obj
+    var next: Hist_obj_state
     next.stats = sim.stats
     next.board = sim.board.clone
     next.state = sim.state
-    if sim.history.len() > 0 and sim.history[^1].state == sim.state:  # Only care for unique states (Stops spam from continous movementy types)
+    if (compression in sim.settings.rules.hist_logging) and sim.history_state.len() > 0 and sim.history_state[^1].state == sim.state:  # Only care for unique states (Stops spam from continous movementy types)
         return
-    sim.history.add(next)
+    sim.history_state.add(next)
 
-proc mark_history*(sim: var Sim, info: string) =  # TODO Only two mark types considered. May want to change or just save everything
-    var next: Hist_obj
-    next.info = info
-    next.time = getMonoTime()
-    sim.history.add(next)
+proc mark_history_info*(sim: var Sim, info: string) =  # TODO Only two mark types considered. May want to change or just save everything
+
+    var next = Hist_obj_info(time: getMonoTime())
+
+    template hist: set[Logging_flags] = sim.settings.rules.hist_logging
+
+    if compression in hist:
+            # TODO Make sure i'm happy with this. In theory it works, but I need be I can just used the state to generate the next hist steps instead.
+
+        var logged_moves: int
+        for a in sim.history_info:
+            if (a.info in all_actions_as_strings) and (a.info != $Action.hard_right) and (a.info != $Action.hard_left) and (a.info != $Action.spawn):
+                logged_moves.inc()
+        
+        
+        if sim.history_info.len() == 0:
+
+            next.info = info
+        
+        elif sim.stats.key_presses > logged_moves:  # +1 for the spawn offset
+
+            next.info = info
+
+        elif sim.stats.key_presses == logged_moves:
+            
+            if info == $Action.right and sim.history_info[^1].info == $Action.right and sim.events.get_event(Action.right).arr_active:  # We assume that there will always be a single move before hard
+                next.info = $Action.hard_right
+            elif info == $Action.left and sim.history_info[^1].info == $Action.left and sim.events.get_event(Action.left).arr_active:
+                next.info = $Action.hard_left
+            elif info == $Action.right and sim.history_info[^1].info == $Action.hard_right and sim.events.get_event(Action.right).arr_active and sim.settings.controls.arr == 0:
+                return
+            elif info == $Action.left and sim.history_info[^1].info == $Action.hard_left and sim.events.get_event(Action.left).arr_active and sim.settings.controls.arr == 0:
+                return
+            else:
+                return
+        else:
+
+            return
+
+    else:
+        next.info = info
+
+
+    sim.history_info.add(next)
+
+    # Debug print the history
+    # var temp: seq[string]
+    # for a in sim.history_info:
+    #     temp.add(a.info)
+    # echo temp
+    # var temp2: seq[int]
+    # for a in sim.history_state:
+    #     temp2.add(a.state.active_x)
+    # echo temp2
 
 
 proc step_back(sim: var Sim) =
-    if len(sim.history) < 1:
-        return
-    let change = sim.history.pop()
-    echo len(sim.history)
-    sim.stats = change.stats
-    sim.board = change.board
-    sim.state = change.state
+    if len(sim.history_state) > 1:
+        discard sim.history_state.pop()
+        let change = sim.history_state[^1]
+        # echo len(sim.history)
+        sim.stats = change.stats
+        sim.board = change.board
+        sim.state = change.state
+    
+    # FIXME remove until only enough after counted moves like in mark
+    if len(sim.history_info) > 0:
+        sim.history_info.del(sim.history_info.high)
+
+
+proc spawn_mino*(sim: var Sim, mino: string) =
+    ## This is a history aware replacement for set_mino
+    template hist_flags: set[Logging_flags] = sim.settings.rules.hist_logging
+    
+    sim.state.set_mino(sim.config, mino)
+    if state in hist_flags:
+        sim.mark_history_state()
+    if time in hist_flags:
+        sim.mark_history_info($Action.spawn & " " & mino)
+        
 
 
 proc frame_step*(sim: var Sim, inputs: seq[Action]) =
@@ -251,6 +325,13 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         if sim.state.active.pattern == Block.empty:
             sim.state.set_mino(sim.config, $sim.state.queue[0])
             sim.state.queue = sim.state.queue[1 .. sim.state.queue.high]
+            template hist: set[Logging_flags] = sim.settings.rules.hist_logging
+            if lock notin hist:
+                if state in hist:
+                    sim.mark_history_state()
+                if time in hist:
+                    sim.mark_history_info($Action.spawn)
+                    discard
         
 
         for a in inputs:
@@ -318,13 +399,14 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 discard do_action(sim.state, sim.board, sim.config, Action.oneeighty)
             of Action.hard_drop:
                 # FIXME all this checking and moving of info (that is hard to reach is bad)
-                if sim.settings.rules.hist_logging == full_on_lock:
-                    sim.mark_history()
                 let drop = calc_drop_score(sim.config, sim.board, sim.state, Action.hard_drop, sim.stats.level)  # TODO introduce level into calculation and for the line below
                 discard do_action(sim.state, sim.board, sim.config, Action.hard_drop)
                 let info = clear_lines(sim.board, sim.state, sim.config)  # TODO add this to the other locking
-                if sim.settings.rules.hist_logging == time_on_lock:
-                    sim.mark_history($info[1])  # FIXME This is a temporary work around 
+                if lock in hist_flags:
+                    if state in hist_flags:
+                        sim.mark_history_state()
+                    if time in hist_flags:
+                        sim.mark_history_info($info[0])  # TODO I probably want to have better info here
                 sim.stats.score += calc_score(sim.config, info[0], info[1]) + drop
                 discard do_action(sim.state, sim.board, sim.config, Action.lock)
                 sim.stats.pieces_placed += 1
@@ -364,6 +446,14 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
                 step_back(sim)
             else:
                 echo "missed Action"
+            
+            if lock notin hist_flags:
+                if state in hist_flags:
+                    sim.mark_history_state()
+                if time in hist_flags:
+                    sim.mark_history_info($a)
+                    discard
+            
     
     of Game_phase.dead:
         return

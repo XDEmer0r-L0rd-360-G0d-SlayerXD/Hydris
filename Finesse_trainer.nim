@@ -172,18 +172,19 @@ proc main() =
     var sim = initSim(preset[0], preset[1])
     sim.load_custom_settings()
     sim.settings.rules.visible_queue_len = 1
-    sim.settings.rules.hist_logging = Logging_type.full_on_move
-    sim.state.set_mino(sim.config, "L")
+    sim.settings.rules.hist_logging = {time, state, compression}
+    # sim.state.set_mino(sim.config, "L")
     var shadow_board = initBoard(sim.config)
     var target_path: seq[int]  # active_x found via history
     var target_path_double: seq[int]  # For double right/left instead of 180
     var final_rotation: int  # active_r 
     var chosen_pattern: string = "L12"
+    var movement_order: seq[Action]
     var background = DARKGREEN
 
 
     InitWindow(ui.visuals.window_width, ui.visuals.window_height, "Hydris - Finesse Trainer")
-    SetTargetFPS(500)
+    SetTargetFPS(60)
 
     while not WindowShouldClose():
 
@@ -218,7 +219,6 @@ proc main() =
             temp_state.set_mino(sim.config, $chosen_pattern[0])
 
             # add fix for das movement
-            var movement_order: seq[Action]
             for a in finess_order[mino_from_str(sim.config, $chosen_pattern[0]).pattern][parseInt($chosen_pattern[1 .. chosen_pattern.high])]:
                 if a == Action.hard_left:
                     movement_order.add(left)
@@ -242,30 +242,48 @@ proc main() =
             discard do_action(temp_state, shadow_board, sim.config, Action.hard_drop)            
             discard do_action(temp_state, shadow_board, sim.config, Action.lock)
 
-        if sim.history.len > 0 and sim.history[^1].board != sim.board and not counter_single.check("board change"):
+
+        if sim.history_state.len >= 2 and sim.history_state[^2].board != sim.board and not counter_single.check("board change"):
+            
             block:  # TODO check if we still need this now that the start history mark has been removed
-                if sim.history.len() == 1 and sim.history[0].state.active_x == 0:
-                    sim.history.delete(0)
+                if sim.history_state.len() == 1 and sim.history_state[0].state.active_x == 0:
+                    sim.history_state.delete(0)
                     break
                 counter_single.inc("board change")
                 var comparison: seq[int]
-                for a in sim.history:
+                for a in sim.history_state:
                     comparison.add(a.state.active_x)
-                if (comparison == target_path or comparison == target_path_double) and sim.history[^1].state.active_r == final_rotation:
+                var our_path: seq[string]
+                for a in 1 .. sim.history_info.high - 1:
+                    our_path.add(sim.history_info[a].info)
+                let movement_final: seq[string] = block:
+                    var temp2: seq[string]
+                    for a in movement_order:
+                        temp2.add($a)
+                    temp2
+                
+                echo our_path & " -> " & movement_final
+
+                var temp: seq[string]
+                for a in sim.history_info:
+                    temp.add(a.info)
+                if (comparison == target_path or comparison == target_path_double) and sim.history_state[^1].state.active_r == final_rotation:
                     background = DARKGREEN
                     counter_single.clear()
-                    sim.history = @[]
                 else:
                     background = DARKBROWN
-                    sim.board = sim.history[0].board.clone()
-                    sim.state = sim.history[0].state.clone(sim.config)
-                    sim.state.set_mino(sim.config, $sim.state.active.pattern)
-                    sim.history = @[]
+                    sim.board = sim.history_state[0].board.clone()
+                    sim.state = sim.history_state[0].state.clone(sim.config)
+                    sim.spawn_mino($sim.state.active.pattern)
                     counter_single.clear()
                     counter_single.inc("chose pattern")
                 target_path = @[]
                 target_path_double = @[]
+                sim.history_state = @[]
+                sim.history_info = @[]
+                sim.stats = Stats()
                 counter_multi.clear()
+                movement_order.setlen(0)
 
 
         if not counter_single.check("lower board"):
@@ -279,10 +297,10 @@ proc main() =
 
             
         
-        if counter_multi.check("hist len") < sim.history.len():
+        if counter_multi.check("hist len") < sim.history_state.len():
             # This is more of a debug thing
             var output: seq[int]
-            for a in sim.history:
+            for a in sim.history_state:
                 output.add(a.state.active_x)
             # echo output 
             counter_multi.inc("hist len")
@@ -298,6 +316,6 @@ proc main() =
 
 
 if isMainModule:
-    randomize()
+    randomize(11)
     main()
 
