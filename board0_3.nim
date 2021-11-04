@@ -921,6 +921,12 @@ proc get_event*(container: Event_container, act: Action): Action_event =
             return a
 
 
+proc get_event_ptr*(container: var Event_container, act: Action): ptr =
+    for a in mitems(container.actions):
+        if a.action == act:
+            return addr a
+
+
 proc get_event*(container: Event_container, phase: Game_phase): Phase_event =
     for a in container.phases:
         if a.phase == phase:

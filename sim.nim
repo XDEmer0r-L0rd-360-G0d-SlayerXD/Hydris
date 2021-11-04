@@ -1,8 +1,9 @@
 {.experimental: "codeReordering".}
-import arraymancer, Board0_3, std/monotimes, tables
+import arraymancer, Board0_3, std/monotimes, tables, counter, sequtils, strformat, counter
 
 # TODO try to make spacing nicer
 # Anything time related should try to stay in ms
+# FIXME All history stuff needs to be changed to also hold the present to avoid timing issues
 
 type
 
@@ -10,6 +11,7 @@ type
         time*: float
         lines_cleared*: int
         pieces_placed*: int
+        key_presses*: int
         score*: int
         lines_sent*: int
         level*: int
@@ -272,14 +274,21 @@ proc frame_step*(sim: var Sim, inputs: seq[Action]) =
         let activations = tick_action(sim.events, inputs)
 
         for a in activations:
-            case sim.settings.rules.hist_logging:
-            of full_on_move:
-                if a != Action.undo:
-                    sim.mark_history()
-            of time_on_move:
-                sim.mark_history($a)
-            else:
-                discard
+
+            template hist_flags: set[Logging_flags] = sim.settings.rules.hist_logging
+
+            # incriment key_presses stat
+            var event = get_event_ptr(sim.events, a)
+            case event.movement:
+            of Move_type.single:
+                sim.stats.key_presses += 1
+            of Move_type.das:
+                if not event.arr_active:
+                    sim.stats.key_presses += 1
+            of Move_type.continuous:
+                if not event.arr_active:
+                    sim.stats.key_presses += 1
+                    event.arr_active = true
 
             case a:
             of Action.left:
