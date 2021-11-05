@@ -204,6 +204,18 @@ proc main() =
             extend_queue(sim.state, sim.config, 1)
         sim.frame_step(pressed)
 
+        # FIXME remove temp history checks
+        if sim.history_info.len() > counter_multi.check("info"):
+            counter.counter_multi.inc("info")
+            echo sim.history_info
+        # if sim.history_state.len() > counter_multi.check("state"):
+        #     counter_multi.inc("state")
+        #     echo sim.history_state.len()
+        
+        if sim.stats.key_presses > counter_multi.check("key counter"):
+            echo sim.stats.key_presses
+            counter_multi.inc("key counter")
+
         # Find pattern to test against
         if not counter_single.check("chose pattern"):
             counter_single.inc("chose pattern")
